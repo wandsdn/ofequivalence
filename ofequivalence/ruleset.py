@@ -19,7 +19,7 @@ A ruleset is a list
 
 from __future__ import print_function
 from collections import defaultdict
-from .rule import MergeException
+from .rule import MergeException, Rule
 from .headerspace import headerspace
 
 # The MAX_PRIORITY rule in openflow
@@ -39,7 +39,7 @@ def single_table_condense(first, second, second_num, openflow=True):
         This is a shortened version of the multitable to single
         table algorithm.
 
-        If the input is prority ordered the result returned will be also.
+        If the input is priority ordered the result returned will be also.
 
         first: The first table ruleset
         second: The second table ruleset
@@ -85,24 +85,53 @@ def single_table_condense(first, second, second_num, openflow=True):
     return res
 
 
-def to_single_table(ruleset, openflow=True):
-    """ Converts a ruleset to an equivalent single table
+def scale_ruleset(ruleset):
+    """ Scale the priorities of a ruleset in-place
 
-        ruleset: A list of Rules
+        Scale priorities such that the result of merging rules is correct by
+        simply adding together priorities.
+        Rules in the first tables are scaled up such that all priorities in
+        subsequent tables can fit between two rules.
+
+        Note: The priorities returned are larger than the priorities supported
+              by OpenFlow
+
+        ruleset: A ruleset, can be unsorted
+        return: ruleset
+    """
+    tables = sorted({x.table for x in ruleset})
+    table_to_power = dict(zip(tables, range(len(tables) - 1, -1, -1)))
+    for rule in ruleset:
+        assert rule.priority < MAX_PRIORITY
+        rule.priority *= MAX_PRIORITY ** table_to_power[rule.table]
+    return ruleset
+
+
+def to_single_table_scaled(ruleset, openflow=True):
+    """ Convert a pre-scaled ruleset to an equivalent single table
+
+        Path is attached to all rules and records the original rules
+        combined to create the single table rule.
+
+        ruleset: A list of Rules, pre-scaled by scale_ruleset()
         openflow: Remain openflow compatible, if not throw
                   a MergeException. Default True
         return: A single table representation
     """
-    tables = {x.table for x in ruleset}
-    table_count = len(tables)
-    for rule in ruleset:
-        assert rule.priority < MAX_PRIORITY
-        rule.priority = (rule.priority * (MAX_PRIORITY ** (table_count - 1 - rule.table)))
+    tables = sorted({x.table for x in ruleset})
     assert 0 in tables
-    tables = sorted(tables)
     for rule in ruleset:
         if not rule.path:
             rule.path = (rule,)
+    # Fill in any missing default rules
+    for table in tables:
+        for rule in ruleset:
+            if rule.priority == 0 and rule.table == table:
+                break
+        else:
+            ruleset.append(Rule(priority=0, table=table))
+            ruleset[-1].path = (ruleset[-1],)
+
     condensed = sorted([x for x in ruleset if x.table == tables[0]],
                        key=lambda x: -x.priority)
 
@@ -111,6 +140,21 @@ def to_single_table(ruleset, openflow=True):
                             key=lambda x: -x.priority)
         condensed = single_table_condense(condensed, next_table, next_num, openflow)
     return condensed
+
+
+def to_single_table(ruleset, openflow=True):
+    """ Convert a ruleset to an equivalent single table
+
+        Path is attached to all rules and records the original rules
+        combined to create the single table rule.
+
+        ruleset: A list of Rules
+        openflow: Remain openflow compatible, if not throw
+                  a MergeException. Default True
+        return: A single table representation
+    """
+    scale_ruleset(ruleset)
+    return to_single_table_scaled(ruleset)
 
 
 DO_LAZY = True
