@@ -21,7 +21,7 @@ CUDD_URL = "https://github.com/ivmai/cudd/archive/cudd-3.0.0.tar.gz"
 CUDD_DIR = "cudd-cudd-3.0.0"  # The dir name within the tar
 C_FLAGS = ["-Wall", "-Wextra", "-g3", "-ggdb", "-O3"]
 
-with open('README') as f:
+with open('README.md') as f:
     README = f.read()
 
 with open('LICENSE') as f:
