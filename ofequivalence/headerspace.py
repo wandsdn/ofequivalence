@@ -259,7 +259,7 @@ def morton_number(a, b):
     return res
 
 try:
-    from ._utils import morton_number64 as morton_number
+    from ._utils import morton_number
 except:
     print("Failed to load c morton_number")
 
