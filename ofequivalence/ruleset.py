@@ -114,7 +114,7 @@ def to_single_table_scaled(ruleset, openflow=True):
         combined to create the single table rule.
 
         ruleset: A list of Rules, pre-scaled by scale_ruleset()
-        openflow: Remain openflow compatible, if not throw
+        openflow: Remain OpenFlow compatible, if not throw
                   a MergeException. Default True
         return: A single table representation
     """
@@ -138,7 +138,8 @@ def to_single_table_scaled(ruleset, openflow=True):
     for next_num in tables[1:]:
         next_table = sorted([x for x in ruleset if x.table == next_num],
                             key=lambda x: -x.priority)
-        condensed = single_table_condense(condensed, next_table, next_num, openflow)
+        condensed = single_table_condense(condensed, next_table, next_num,
+                                          openflow)
     return condensed
 
 
@@ -149,12 +150,12 @@ def to_single_table(ruleset, openflow=True):
         combined to create the single table rule.
 
         ruleset: A list of Rules
-        openflow: Remain openflow compatible, if not throw
+        openflow: Remain OpenFlow compatible, if not throw
                   a MergeException. Default True
         return: A single table representation
     """
     scale_ruleset(ruleset)
-    return to_single_table_scaled(ruleset)
+    return to_single_table_scaled(ruleset, openflow)
 
 
 DO_LAZY = True
@@ -266,7 +267,6 @@ def node_to_tree(dep_list, nodes):
     for parent, child in dep_list:
         parent.children.append(child)
         child.parents.append(parent)
-    return
 
 
 def simplify_tree(nodes):
