@@ -1149,3 +1149,74 @@ class Match(dict):
 
     def empty(self):
         return len(self) == 0
+
+
+class UniqueRules():
+    """ Set Rule equality to instance comparison
+
+        This is primarily for performance purposes, if you are working with
+        a single ruleset of unique rules.
+
+        The hash and equal function of Rule are updated to be unique per
+        instance.
+
+        Usage:
+
+        somedict = dict()
+        with UniqueRules(somedict):
+            new_dict = dict()
+            for ...:
+                for rule in ...:
+                    # expensive operations using __hash__ or __eq__
+                    somedict[rule] += something
+                    new_dict[rule] = somethingelse
+        somedict[rule]  # Valid if somedict passed to UniqueRules
+        new_dict[rule]  # Invalid as hash changed item might not be found
+
+
+        WARNING: This changes the hash function of all Rule objects, all dicts
+        and sets will be invalid when leaving or entering this block.
+        It is the responsibility of the caller to rebuild any such mappings
+        when entering or exiting this block.
+    """
+    def __init__(self, *mappings):
+        """ *mappings: mappings to be updated when exited (optional)
+        """
+        self.mappings = mappings
+
+    def __enter__(self):
+        if "__hash__" in Rule.__dict__:
+            self._old_hash = Rule.__hash__
+            self._old_eq = Rule.__eq__
+            self._old_ne = Rule.__ne__
+            del Rule.__hash__
+            del Rule.__eq__
+            del Rule.__ne__
+
+    @staticmethod
+    def rebuild_mappings(mappings):
+        """ Forcibly rebuilds mapping types to recalculate item hashes
+            Supports dict and set types
+        """
+        for _map in mappings:
+            if isinstance(_map, dict):
+                # Note we need to use iterator to force a rehash
+                new = _map.__class__(viewitems(_map))
+                _map.clear()
+                _map.update(new)
+            elif isinstance(_map, set):
+                new = _map.__class__(iter(_map))
+                _map.clear()
+                _map.update(new)
+            else:
+                print("rebuild_mappings: Unknown mapping type", _map.__class__)
+
+    def __exit__(self, excpt_type, excpt_value, traceback):
+        try:
+            Rule.__hash__ = self._old_hash
+            Rule.__eq__ = self._old_eq
+            Rule.__ne__ = self._old_ne
+            self.rebuild_mappings(self.mappings)
+        except AttributeError:
+            # This was re-entered so was a no-op
+            pass
