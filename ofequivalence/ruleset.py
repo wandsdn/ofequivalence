@@ -19,11 +19,13 @@ A ruleset is a list
 
 from __future__ import print_function
 from collections import defaultdict
-from .rule import MergeException, Rule
+from .rule import MergeException, Rule, UniqueRules
 from .headerspace import headerspace
+from .cuddbdd import wc_to_BDD, BDD
 
-# The MAX_PRIORITY rule in openflow
+# The MAX_PRIORITY rule in OpenFlow
 MAX_PRIORITY = 2**16
+
 
 def sort_ruleset(ruleset):
     """ Returns a ruleset sorted from highest priority to lowest
@@ -165,93 +167,238 @@ DO_LAZY = True
 # iff Ri is removed packets that should hit Ri will instead hit Rj
 
 def get_header_space(rule):
-    wc = rule.match.get_wildcard()
     hs = headerspace()
-    hs.add_hs(wc)
+    hs.add_hs(rule.match.get_wildcard())
     return hs
 
-def add_parents(R, P):
-    deps = []
-    reaches = {}
 
-    packets = get_header_space(R)
-    P.sort(key=lambda x: -x.priority)  # descending
-    for Rj in P:
+def add_parents_hs(R, P, reaches):
+    if P and R.table == next(iter(P)).table:
+        packets = get_header_space(R)
+    else:
+        packets = headerspace()
+        packets.add_hs(R.get_goto_egress().get_wildcard())
+    for Rj in sorted(P, key=lambda x: -x.priority):  # descending order
         Rj_hs = get_header_space(Rj)
         intersection = packets.copy_intersect(Rj_hs)
         intersection.clean_up()
         if not intersection.is_empty():
-            deps.append((R, Rj))
             reaches[(R, Rj)] = intersection
-            # gotos = deps.append((R, Rj))
             if DO_LAZY:
                 assert len(Rj_hs.hs_list) == 1 and not Rj_hs.hs_diff[0]
                 packets.diff_hs(Rj_hs.hs_list[0])
             else:
                 packets.minus(Rj_hs)
-    return deps, reaches
 
 
-def build_DAG(ruleset):
+def add_parents_bdd(R, P, reaches, parent_to_edge=None):
+    if P and R.table == next(iter(P)).table:
+        packets = R.as_BDD
+    else:
+        packets = wc_to_BDD(R.get_goto_egress().get_wildcard(), "1", "1")
+    for Rj in sorted(P, key=lambda x: -x.priority):  # descending order
+        Rj_hs = Rj.as_BDD
+        intersection = packets.intersection(Rj_hs)
+        if intersection:
+            reaches[(R, Rj)] = intersection
+            if parent_to_edge is not None:
+                parent_to_edge[Rj].add(R)
+            packets = packets.subtract(Rj_hs)
+            if not packets:
+                break
+
+
+def build_DAG(ruleset, add_parents=add_parents_bdd):
     """
     Based on CacheFlow (2016), algorithm 1
     ruleset: Takes a list of Rule objects
+    add_parents: Defaults to add_parents_bdd, alternatively the headerspace
+                 version add_parents_hs can be used.
+
+    return: A mapping from edges to packet-space on that path.
+            An edge is a tuple (child, parent) and add_parents selects the
+            packet-space encoding.
     """
-    res = []
     reaches = {}
+    if add_parents is add_parents_bdd:
+        for rule in ruleset:
+            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
     for R in ruleset:
         potential_parents = [Rj for Rj in ruleset
-                            if Rj.priority < R.priority or Rj.table > R.table]
-        deps, reach = add_parents(R, potential_parents)
-        res += deps
-        reaches.update(reach)
-    return res, reaches
+                             if Rj.priority < R.priority or Rj.table > R.table]
+        add_parents(R, potential_parents, reaches)
+    return reaches
 
 
-def cross_tables_DAG(stats):
+def build_DAG_prefix(ruleset, add_parents=add_parents_bdd):
+    """
+    Builds a DAG for a IPv4 prefix table
+
+    Requires a ruleset with a default rule at priority 0.
+    Assumes that rules are in the correct format.
+
+    ruleset: A list of Rule objects
+    add_parents: Defaults to add_parents_bdd, alternatively the headerspace
+                 version add_parents_hs can be used.
+    return: A mapping from edges to packet-space on that path.
+            An edge is a tuple (child, parent) and add_parents selects the
+            packet-space encoding.
+    """
+    # Sort subnets from 0.0.0.0 -> 255.255.255.255 then if required /0 -> /32
+    ruleset = sorted(ruleset, key=lambda x: x.match["IPV4_DST"])
+    reaches = {}
+    assert ruleset[0].priority == 0
+    assert ruleset[0].match.get_wildcard() == Rule().match.get_wildcard()
+
+    for rule in ruleset:
+        rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
+    # Add the default rule to the bottom of the chain
+    chain = [ruleset[0]]
+    for rule in ruleset[1:]:
+        # As rules are ordered, once we stop overlapping a rule we know
+        # no subsequent rules will. So pop that.
+        while not chain[-1].as_BDD.intersection(rule.as_BDD):
+            chain.pop()
+        # We can only overlap with one rule and will do so completely
+        add_parents(rule, [chain[-1]], reaches)
+        chain.append(rule)
+
+    return reaches
+
+
+def _find_affected_edges(rule, new_rule, aff_edges, potential_parents, reaches,
+                         parent_to_edge):
+    for child in parent_to_edge[rule]:
+        if child.priority > new_rule.priority:
+            # We might have to modify existing edges
+            if reaches[(child, rule)].intersection(new_rule.as_BDD):
+                aff_edges[child].append((child, rule))
+        elif child.priority < new_rule.priority:
+            # We might need to add new edges
+            # CacheFlow Algorithm says check the union, but that does not make
+            # sense. This needs to be the intersection.
+            if child.as_BDD.intersection(new_rule.as_BDD):
+                potential_parents.add(child)
+                _find_affected_edges(child, new_rule, aff_edges,
+                                     potential_parents, reaches, parent_to_edge)
+        # Do not need check if priorities are equal
+
+
+def _process_affected_edges(aff_edges, new_rule, reaches, parent_to_edge):
+    for child, edges in aff_edges.iteritems():
+        # The CacheFlow algorithm listed does not make sense here as it only
+        # as it takes the reaches for the new edge from the packet-space of
+        # only one edge.
+        # Instead this should be the union of all edges overlap (intersection)
+        # with the new rule
+        # Note: BDD + is priorityAdd, which gives the union
+
+        # Delete edges which are now empty
+        new_packets = BDD()
+        for edge in edges:
+            diff = reaches[edge].subtract(new_rule.as_BDD)
+            if not diff:
+                # The old edge is empty delete, so 100% intersect overlap
+                new_packets += reaches.pop(edge)
+                parent_to_edge[edge[1]].remove(edge[0])
+            else:
+                # The old edge still exists, update the packet space
+                new_packets += reaches[edge].intersection(new_rule.as_BDD)
+                reaches[edge] = diff
+        reaches[(child, new_rule)] = new_packets
+        parent_to_edge[new_rule].add(child)
+
+
+def dag_insert(default_rule, new_rule, reaches, parent_to_edge):
+    """
+    Insert a rule into an existing DAG
+    """
+    # A list of affected edges Map child -> list of edges list[(child, parent) ...]
+    aff_edges = defaultdict(list)
+    potential_parents = set()  # A set of potential parent nodes
+    potential_parents.add(default_rule)
+    _find_affected_edges(default_rule, new_rule, aff_edges, potential_parents,
+                         reaches, parent_to_edge)
+    _process_affected_edges(aff_edges, new_rule, reaches, parent_to_edge)
+    add_parents_bdd(new_rule, potential_parents, reaches, parent_to_edge)
+
+
+def build_DAG_incremental(ruleset, add_parents=add_parents_bdd):
+    """
+    Based on CacheFlow (2006), algorithm 2
+
+    An incremental version of building the DAG which can outperform
+    the naive, by only considering parts of the DAG which can actually
+    overlap.
+
+    ruleset: Takes a list of Rule objects
+    add_parents: Defaults to add_parents_bdd, must not be changed.
+    return: A mapping from edges to packet-space on that path.
+            An edge is a tuple (child, parent) and add_parents selects the
+            packet-space encoding.
+    """
+    assert add_parents is add_parents_bdd
+    # Find the default
+    exc_default = []
+    default = None
+    ruleset = sorted(ruleset, key=lambda key: key.priority)
+    for rule in ruleset:
+        if rule.priority == 0:
+            default = rule
+        else:
+            exc_default.append(rule)
+
+    reaches = {}  # Map (child, parent) [aka. an edge] -> packet-space on edge
+    parent_to_edge = defaultdict(set)
+
+    with UniqueRules(reaches):  # Compare Rule's per instance, faster
+        default.as_BDD = wc_to_BDD(default.match.get_wildcard(), "1", "1")
+        for rule in exc_default:
+            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
+            dag_insert(default, rule, reaches, parent_to_edge)
+
+    return reaches
+
+
+def cross_tables_DAG(stats, _build_DAG=build_DAG_incremental, add_parents=add_parents_bdd):
     """ A multi-table implementation of DAG.
+
         stats: Takes a list of Rule objects
+        _build_DAG: Algorithm to build the DAG, incremental by default
+        add_parents: Algorithm to add parents (must be bdd for incremental)
         returns: A list of dependencies in the format
                  [(f1, f2), (f1, f3), ...]
     """
-    tables = set([x.table for x in stats if x.table != 0])
-    tables = sorted(tables)
-    res = []
-    input_to_table = defaultdict(set)
-    reaches = {}
+    with UniqueRules():
+        ruleset_tables = defaultdict(list)
+        for rule in stats:
+            ruleset_tables[rule.table].append(rule)
+        tables = sorted(ruleset_tables)
+        input_to_table = defaultdict(set)
+        reaches = {}
 
-    # Do table 0, all packets hit this
-    table_zero = [stat for stat in stats if stat.table == 0]
-    deps, reach = build_DAG(table_zero)
-    res += deps
-    reaches.update(reach)
+        # All goto's out of table 1
+        for stat in ruleset_tables[0]:
+            if stat.instructions.goto_table is not None:
+                input_to_table[stat.instructions.goto_table].add(stat)
 
-    # Now with all those rules figure out the gotos
-    for stat in table_zero:
-        if stat.instructions.goto_table is not None:
-            input_to_table[stat.instructions.goto_table].add(stat)
+        # Now lets walk the remaining tables in order
+        for table in tables:
+            # Find the deps within a table
+            table_reaches = _build_DAG(ruleset_tables[table], add_parents)
+            # Use every goto with every rule in the table
+            for stat in input_to_table[table]:
+                add_parents(stat, ruleset_tables[table], reaches)
+                for nstat in (x[1] for x in reaches if x[1].table == table):
+                    if nstat.instructions.goto_table is not None:
+                        input_to_table[nstat.instructions.goto_table].add(nstat)
+            reaches.update(table_reaches)
+            input_to_table[table] = set()
 
-    # Now lets walk the remaining tables in order
-    for table in tables:
-        table_rules = [stat for stat in stats if stat.table == table]
-        # Use every goto with every rule in the table
-        for stat in input_to_table[table]:
-            deps, reach = add_parents(stat, table_rules)
-            res += deps
-            reaches.update(reach)
-            for nstat in [x[1] for x in deps]:
-                if nstat.instructions.goto_table is not None:
-                    input_to_table[nstat.instructions.goto_table].add(nstat)
-        # Also do deps within the table
-        deps, reach = build_DAG(table_rules)
-        res += deps
-        reaches.update(reach)
-        input_to_table[table] = set()
-
-    for x in input_to_table:
-        # Something went backwards
-        assert len(input_to_table[x]) == 0
-    return res
+        for x in input_to_table:
+            # Something went backwards
+            assert len(input_to_table[x]) == 0
+    return list(reaches)
 
 
 def node_to_tree(dep_list, nodes):
