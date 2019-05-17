@@ -22,6 +22,7 @@ from collections import defaultdict
 from .rule import MergeException, Rule, UniqueRules
 from .headerspace import headerspace
 from .cuddbdd import wc_to_BDD, BDD
+from six import viewitems
 
 # The MAX_PRIORITY rule in OpenFlow
 MAX_PRIORITY = 2**16
@@ -285,7 +286,7 @@ def _find_affected_edges(rule, new_rule, aff_edges, potential_parents, reaches,
 
 
 def _process_affected_edges(aff_edges, new_rule, reaches, parent_to_edge):
-    for child, edges in aff_edges.iteritems():
+    for child, edges in viewitems(aff_edges):
         # The CacheFlow algorithm listed does not make sense here as it only
         # as it takes the reaches for the new edge from the packet-space of
         # only one edge.
