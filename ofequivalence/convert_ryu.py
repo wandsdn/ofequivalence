@@ -85,6 +85,8 @@ def match_from_ryu(ryu_match):
     ryu_match: A ryu OFPMatch
     return: A Match object
     """
+    if ryu_match is None:
+        return Match()
     ret = Match()
     for field in ryu_match._fields2:
         oxm = ofproto_v1_3.oxm_from_user(*field)
@@ -157,6 +159,8 @@ def instructions_from_ryu(ryu_instructions):
         ryu_instructions: A list of OFPInstruction* objects
         return: An Instructions object
     """
+    if ryu_instructions is None:
+        return Instructions()
     ret = Instructions()
     for instruction in ryu_instructions:
         if instruction.type == ofproto_v1_3.OFPIT_GOTO_TABLE:
