@@ -19,13 +19,23 @@ A ruleset is a list
 
 from __future__ import print_function
 from collections import defaultdict
-from .rule import MergeException, Rule, UniqueRules
+from itertools import groupby
+from six import viewitems, viewvalues
+from .rule import MergeException, Rule, UniqueRules, Match
 from .headerspace import headerspace
+from .headerspace import get_wildcard_mask
 from .cuddbdd import wc_to_BDD, BDD
-from six import viewitems
 
 # The MAX_PRIORITY rule in OpenFlow
 MAX_PRIORITY = 2**16
+
+
+def sort_key_ruleset_priority(rule):
+    """ Sort key for a ruleset
+
+        From highest priority rule first table to lowest priority last table.
+    """
+    return (rule.table, -rule.priority)
 
 
 def sort_ruleset(ruleset):
@@ -34,7 +44,7 @@ def sort_ruleset(ruleset):
         Sorts from highest to lowest priority first table to last
         return: A new sorted ruleset
     """
-    return sorted(ruleset, key=lambda rule: (rule.table, -rule.priority))
+    return sorted(ruleset, key=sort_key_ruleset_priority)
 
 
 def single_table_condense(first, second, second_num, openflow=True):
@@ -192,6 +202,37 @@ def add_parents_hs(R, P, reaches):
                 packets.minus(Rj_hs)
 
 
+class AttachBDD(object):
+    """ Adds as_BDD to a rule
+        Undone once the block is left
+
+        Usage with:
+        with(ruleset):
+            pass
+    """
+    def __init__(self, ruleset):
+        self.ruleset = ruleset
+
+    def __enter__(self):
+        # Re-entry, assume if one rule does all do
+        if hasattr(self.ruleset[0], "as_BDD"):
+            self.ruleset = None
+            return
+        for rule in self.ruleset:
+            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
+
+    def __exit__(self, *args):
+        if self.ruleset:
+            for rule in self.ruleset:
+                del rule.as_BDD
+
+
+class NoopContext(object):
+    def __init__(self, *args, **kwargs): pass
+    __enter__ = __init__
+    __exit__ = __init__
+
+
 def add_parents_bdd(R, P, reaches, parent_to_edge=None):
     if P and R.table == next(iter(P)).table:
         packets = R.as_BDD
@@ -221,13 +262,13 @@ def build_DAG(ruleset, add_parents=add_parents_bdd):
             packet-space encoding.
     """
     reaches = {}
-    if add_parents is add_parents_bdd:
-        for rule in ruleset:
-            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
-    for R in ruleset:
-        potential_parents = [Rj for Rj in ruleset
-                             if Rj.priority < R.priority or Rj.table > R.table]
-        add_parents(R, potential_parents, reaches)
+    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    with _AttachBDD(ruleset):
+        for R in ruleset:
+            potential_parents = [Rj for Rj in ruleset
+                                 if Rj.priority < R.priority or Rj.table > R.table]
+            add_parents(R, potential_parents, reaches)
+
     return reaches
 
 
@@ -251,18 +292,18 @@ def build_DAG_prefix(ruleset, add_parents=add_parents_bdd):
     assert ruleset[0].priority == 0
     assert ruleset[0].match.get_wildcard() == Rule().match.get_wildcard()
 
-    for rule in ruleset:
-        rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
     # Add the default rule to the bottom of the chain
     chain = [ruleset[0]]
-    for rule in ruleset[1:]:
-        # As rules are ordered, once we stop overlapping a rule we know
-        # no subsequent rules will. So pop that.
-        while not chain[-1].as_BDD.intersection(rule.as_BDD):
-            chain.pop()
-        # We can only overlap with one rule and will do so completely
-        add_parents(rule, [chain[-1]], reaches)
-        chain.append(rule)
+    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    with _AttachBDD(ruleset):
+        for rule in ruleset[1:]:
+            # As rules are ordered, once we stop overlapping a rule we know
+            # no subsequent rules will. So pop that.
+            while not chain[-1].as_BDD.intersection(rule.as_BDD):
+                chain.pop()
+            # We can only overlap with one rule and will do so completely
+            add_parents(rule, [chain[-1]], reaches)
+            chain.append(rule)
 
     return reaches
 
@@ -343,8 +384,9 @@ def build_DAG_incremental(ruleset, add_parents=add_parents_bdd):
     exc_default = []
     default = None
     ruleset = sorted(ruleset, key=lambda key: key.priority)
+    match_all = Match()
     for rule in ruleset:
-        if rule.priority == 0:
+        if rule.match == match_all:
             default = rule
         else:
             exc_default.append(rule)
@@ -352,16 +394,15 @@ def build_DAG_incremental(ruleset, add_parents=add_parents_bdd):
     reaches = {}  # Map (child, parent) [aka. an edge] -> packet-space on edge
     parent_to_edge = defaultdict(set)
 
-    with UniqueRules(reaches):  # Compare Rule's per instance, faster
-        default.as_BDD = wc_to_BDD(default.match.get_wildcard(), "1", "1")
+    with UniqueRules(reaches), AttachBDD(ruleset):  # Faster object compare
         for rule in exc_default:
-            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
             dag_insert(default, rule, reaches, parent_to_edge)
 
     return reaches
 
 
-def cross_tables_DAG(stats, _build_DAG=build_DAG_incremental, add_parents=add_parents_bdd):
+def cross_tables_DAG(stats, _build_DAG=build_DAG_incremental,
+                     add_parents=add_parents_bdd):
     """ A multi-table implementation of DAG.
 
         stats: Takes a list of Rule objects
@@ -370,7 +411,8 @@ def cross_tables_DAG(stats, _build_DAG=build_DAG_incremental, add_parents=add_pa
         returns: A list of dependencies in the format
                  [(f1, f2), (f1, f3), ...]
     """
-    with UniqueRules():
+    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    with UniqueRules(), _AttachBDD(stats):
         ruleset_tables = defaultdict(list)
         for rule in stats:
             ruleset_tables[rule.table].append(rule)
@@ -443,7 +485,6 @@ def simplify_tree(nodes):
 # traffic hitting the rule x.
 # So we should we make a dep between rules that overlap with the next table
 # And then remove the overlapping portion
-# TODO we should also apply actions before this
 
 
 def directed_layout(G, scale=1.0, push_down=True, cluster=True,
