@@ -287,7 +287,8 @@ def build_DAG_prefix(ruleset, add_parents=add_parents_bdd):
             packet-space encoding.
     """
     # Sort subnets from 0.0.0.0 -> 255.255.255.255 then if required /0 -> /32
-    ruleset = sorted(ruleset, key=lambda x: x.match["IPV4_DST"])
+    ruleset = sorted(ruleset,
+                     key=lambda x: (x.match["IPV4_DST"][0], x.priority))
     reaches = {}
     assert ruleset[0].priority == 0
     assert ruleset[0].match.get_wildcard() == Rule().match.get_wildcard()
@@ -390,6 +391,9 @@ def build_DAG_incremental(ruleset, add_parents=add_parents_bdd):
             default = rule
         else:
             exc_default.append(rule)
+
+    if default is None:
+        raise ValueError("No default rule found in table {}".format(ruleset[0].table))
 
     reaches = {}  # Map (child, parent) [aka. an edge] -> packet-space on edge
     parent_to_edge = defaultdict(set)
