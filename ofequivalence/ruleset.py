@@ -385,9 +385,9 @@ def build_DAG_incremental(ruleset, add_parents=add_parents_bdd):
     exc_default = []
     default = None
     ruleset = sorted(ruleset, key=lambda key: key.priority)
-    match_all = Match()
+    match_all = Match().get_wildcard()
     for rule in ruleset:
-        if rule.match == match_all:
+        if rule.match.get_wildcard() == match_all:
             default = rule
         else:
             exc_default.append(rule)
