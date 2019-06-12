@@ -320,7 +320,9 @@ def _find_affected_edges(rule, new_rule, aff_edges, potential_parents, reaches,
             # We might need to add new edges
             # CacheFlow Algorithm says check the union, but that does not make
             # sense. This needs to be the intersection.
-            if child.as_BDD.intersection(new_rule.as_BDD):
+            # Don't reconsider the same node twice
+            if (child not in potential_parents and
+                child.as_BDD.intersection(new_rule.as_BDD)):
                 potential_parents.add(child)
                 _find_affected_edges(child, new_rule, aff_edges,
                                      potential_parents, reaches, parent_to_edge)

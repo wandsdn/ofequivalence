@@ -91,6 +91,8 @@ for x in REANNZ_RULESET:
     x.table = 0
 for x in REANNZ_OVERLAP:
     x.table = 0
+for x in REANNZ_OVERLAP2:
+    x.table = 0
 
 EXPECTED_REANNZ_RESULTS = set(
     [(REANNZ_RULESET[0], REANNZ_RULESET[2]),
