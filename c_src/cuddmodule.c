@@ -99,7 +99,8 @@ static PyObject *osubtract_recursive(PyObject *self, PyObject *args);
 static PyObject *ointersection_recursive(PyObject *self, PyObject *args);
 static PyObject *odifference_recursive(PyObject *self, PyObject *args);
 static PyObject *odifftagged_recursive(PyObject *self, PyObject *args);
-static Py_ssize_t BDD_len(PyObject *a);
+static Py_ssize_t BDD_len(PyObject *);
+static int BDD_bool(PyObject *);
 
 static PyMethodDef BDD_methods[] = {
     {"subtract", osubtract_recursive, METH_VARARGS, "Subtract BDDs"},
@@ -110,7 +111,13 @@ static PyMethodDef BDD_methods[] = {
      "Intersection of BDDs"},
     {0}};
 
-static PyNumberMethods BDDNumType = {.nb_add = bmeld_recursive};
+#if PY_MAJOR_VERSION >= 3
+static PyNumberMethods BDDNumType = {.nb_add = bmeld_recursive,
+                                     .nb_bool = BDD_bool};
+#else
+static PyNumberMethods BDDNumType = {.nb_add = bmeld_recursive,
+                                     .nb_nonzero = BDD_bool};
+#endif
 static PySequenceMethods BDDSeqType = {.sq_length = BDD_len};
 static PyTypeObject BDDType = {
     PyVarObject_HEAD_INIT(NULL, 0) MODULE_NAME_S ".BDD", /* tp_name */
@@ -432,6 +439,13 @@ static Py_ssize_t BDD_len(PyObject *_self) {
     DdNode *roots[2] = {self->root, BK};
     return (Py_ssize_t)Cudd_SharingSize(roots, 2) - 1;
   }
+}
+
+static int BDD_bool(PyObject *_self) {
+  BDD *self = (BDD *)_self;
+  if (self->root == NULL)
+    return 0;
+  return self->root != BK;
 }
 
 static PyObject *BDD_shared_size(PyObject *Py_UNUSED(self), PyObject *args) {
