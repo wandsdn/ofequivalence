@@ -586,3 +586,191 @@ def directed_layout(G, scale=1.0, push_down=True, cluster=True,
             positions[n] = (x*scale, y*scale)
 
     return positions
+
+
+def create_similar_groups(ruleset, min_groups=None, rule2group=None,
+                          deps=None):
+    """ Creates groupings of similar rules ready for select_minimised_ruleset
+
+        For more details see minimise_ruleset
+
+        ruleset: The ruleset to group
+        min_groups: A dict, if included filled in-place
+        rule2group: A dict, if included filled in-place
+        deps: Optional, precomputed dependencies
+        return: (min_groups, rule2group)
+    """
+    def _get_similar_tuple(flow):
+        """ Returns a tuple, to match similar looking rules """
+        actions = set()
+        if flow.instructions.write_actions:
+            actions.update([flow.instructions.write_actions.to_type(k)
+                            for k in flow.instructions.write_actions])
+        if flow.instructions.apply_actions:
+            actions.update([flow.instructions.apply_actions.to_type(k)
+                            for k in flow.instructions.apply_actions])
+        actions = tuple(sorted(actions, key=str))
+        return (flow.table, -flow.priority,
+                get_wildcard_mask(flow.match.get_wildcard()),
+                flow.instructions.goto_table, actions
+               )
+
+    def _get_p_and_c(flow):
+        # Arrg never use ID, cannot reproduce issues half the time
+        return (tuple(sorted([x._u_id for x in flow.parents])),
+                tuple(sorted([x._u_id for x in flow.children])))
+
+    if min_groups is None:
+        min_groups = {}
+    if rule2group is None:
+        rule2group = {}
+
+    if deps is None:
+        min_deps = cross_tables_DAG(ruleset)
+    else:
+        min_deps = deps
+    # Tag each with children etc.
+    node_to_tree(min_deps, ruleset)
+    # Add a unique sorting ID
+    for i, rule in enumerate(ruleset):
+        rule._u_id = i
+
+    # Minimisation groups
+    # Simply group by each of this
+    rules_sorted = sorted(ruleset, key=_get_similar_tuple)
+    for _, itr in groupby(rules_sorted, _get_similar_tuple):
+        rules_grouped = sorted(itr, key=_get_p_and_c)
+        min_groups[rules_grouped[0]] = rules_grouped
+
+    # Try figure dependencies
+    for group, rules in viewitems(min_groups):
+        for rule in rules:
+            rule2group[rule] = group
+
+    # Keep splitting groups while a difference in dependencies exists
+    while True:
+        for group, rules in viewitems(min_groups):
+            if len(rules) == 1:
+                continue
+            new_groups = defaultdict(list)
+            for rule in rules:
+                p_set = frozenset([rule2group[parent] for parent in rule.parents])
+                c_set = frozenset([rule2group[child] for child in rule.children])
+                new_groups[(p_set, c_set)].append(rule)
+            if len(new_groups) > 1:
+                # Replace the original group and recheck
+                del min_groups[group]
+                for new_rules in viewvalues(new_groups):
+                    min_groups[new_rules[0]] = new_rules
+                    for new_rule in new_rules:
+                        rule2group[new_rule] = new_rules[0]
+                break
+        else:
+            break
+
+    return (min_groups, rule2group)
+
+
+def select_minimised_ruleset(ruleset, min_groups, rule2group):
+    """ Select the minimised rules, with create_similar_groups()'s output
+
+        For more details see minimise_ruleset
+
+        ruleset: The original ruleset
+        min_groups: From create_similar_groups
+        rule2group: From create_similar_groups
+        return: A minimised ruleset
+    """
+    # In order we traverse and pick rules such that we keep dependencies
+    # Work from the bottom up, as following back paths will add the most
+    # restrictions
+    unassigned_groups = sort_ruleset(min_groups)
+
+    # Begin by assigning the default in the final table
+    assigned = set((unassigned_groups.pop(),))
+
+    # Pick a rule such that its children are fully included in the
+    # rules already assigned. Reverse order seems to work best.
+    while unassigned_groups:
+        assigning = unassigned_groups.pop()
+        rule_options = min_groups[assigning]
+        for option in rule_options:
+            # Check if all child dependencies of this option have been selected
+            children = set(option.children)
+            overlap = children.intersection(assigned)
+            # NOTE: Building 'expected' like this seems excessive, but, is
+            # required.
+            # A simple overlap == children, or length check fails because
+            # an option might have multiple deps to rules in the same group. So
+            # this checks that one child from each group has been selected.
+            expected = set()
+            for child in children:
+                expected.add(rule2group[child])
+            if expected == overlap:
+                if option == assigning:
+                    # The first option already works, no-changes
+                    assert rule2group[option] == option
+                else:
+                    # We selected option, and update the mapping
+                    for rule in rule_options:
+                        assert rule in rule2group
+                        rule2group[rule] = option
+                    # Get index and move it to front of the list
+                    index = rule_options.index(option)
+                    assert index > 0
+                    rule_options[0], rule_options[index] = (
+                        rule_options[index], rule_options[0])
+                    del min_groups[assigning]
+                    min_groups[option] = rule_options
+                    assigning = option
+                break
+        else:
+            # No single rule fulfils all dependency requirements
+            # Right now we don't know how best to deal with this case
+            debug()
+
+        assigned.add(assigning)
+
+    return sort_ruleset(assigned)
+
+
+def minimise_ruleset(ruleset, deps=None):
+    """ Creates a minimised ruleset which represents the original.
+
+        Minimises a ruleset by removing similar rules, yet maintaining
+        the complexity between rules. This aims to remain representative
+        of the original ruleset.
+
+        The idea is to try fit this much smaller ruleset to a new pipeline
+        and then apply the same placements to all rules.
+
+        The key to maintaining the original complexity is ensuring the all
+        dependencies between groups of similar rules remain in the minimised
+        ruleset.
+
+        We are very restrictive about what 'similar' rules are:
+        * Same priority and table
+        * Same match mask (can be different values)
+        * Same actions (can be different values but same primitives)
+        * Same parents and children
+
+
+        ruleset: The input ruleset
+        deps: Optional list of precomputed dependencies for the ruleset
+        return: (Minimised ruleset, mapping to similar rules). The mapping is
+                from the selected rule in the minimised ruleset to all
+                'similar' rules.
+    """
+    # Rule -> tuple(Rules)
+    min_groups = {}
+    rule2group = {}
+
+    with UniqueRules(min_groups):
+        create_similar_groups(ruleset, deps=deps, min_groups=min_groups,
+                              rule2group=rule2group)
+        select_minimised_ruleset(ruleset, min_groups=min_groups,
+                                 rule2group=rule2group)
+
+    # Now pick rules which have the deps
+    new_ruleset = sort_ruleset(min_groups)
+    return (new_ruleset, min_groups)
