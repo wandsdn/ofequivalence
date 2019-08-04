@@ -152,9 +152,10 @@ def main():
             with Time("Normalise Naive"):
                 norm = normalise_naive(single_table)
 
+        print("Unique nodes in BDD:", len(norm))
         if args.verbose:
             cuddbdd._cudd.print_info()
-            print("Max memory", cuddbdd._cudd.max_memory())
+            print("Max memory:", cuddbdd._cudd.max_memory())
         canonical_rulesets.append((f_name, norm))
 
     if len(rulesets) <= 1:
