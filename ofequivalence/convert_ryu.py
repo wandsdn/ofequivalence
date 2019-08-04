@@ -17,17 +17,25 @@ representation.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 try:
     import cPickle as pickle
+    from cPickle import UnpicklingError
 except ImportError:
     import pickle
+    from pickle import UnpicklingError
+import json
+import sys
 
 import six
 from six import viewitems
 from ryu.ofproto import ofproto_v1_3
 from ryu.ofproto import ofproto_v1_3_parser as parser
+from ryu.ofproto.ofproto_protocol import ProtocolDesc
+from ryu.ofproto.ofproto_parser import ofp_msg_from_jsondict
 
 from .rule import Rule, Match, Instructions, ActionSet, ActionList, Group
+from .utils import open_compressed
 
 
 def _normalise_bytes(value):
@@ -41,7 +49,7 @@ def _normalise_bytes(value):
         # Check for IPv6 note this can match the naive MAC
         # The smallest IPv6 is '::'
         if (len(value.split(b':')) == 8 or
-           (len(value.split(b':')) >= 3 and value.find(b"::") != -1)):
+                (len(value.split(b':')) >= 3 and value.find(b"::") != -1)):
             v2 = value
             while len(v2.split(b':')) < 8:
                 v2 = v2.replace(b'::', b':::', 1)
@@ -200,6 +208,30 @@ def rule_from_ryu(ryu_flow):
 
 
 def ruleset_from_ryu(f_name):
+    """ Loads a ryu ruleset from either a pickle or json format
+
+        f_name: The path to the file
+        return: A list of Rules
+    """
+    with open_compressed(f_name, "rb") as f_handle:
+        ruleset = None
+        if 'json' in f_name or 'jsn' in f_name:
+            # Try json first
+            try:
+                ruleset = ruleset_from_ryu_json(f_handle)
+            except ValueError:  # Only python3 has JSONDecodeError
+                f_handle.seek(0)
+                ruleset = ruleset_from_ryu_pickle(f_handle)
+        else:
+            try:
+                ruleset = ruleset_from_ryu_pickle(f_handle)
+            except UnpicklingError:
+                f_handle.seek(0)
+                ruleset = ruleset_from_ryu_json(f_handle)
+
+    return ruleset
+
+def ruleset_from_ryu_pickle(f_handle):
     """ Loads a pickled ryu ruleset
 
         The ruleset can be compressed, either .gz or .bz2 and are
@@ -207,17 +239,9 @@ def ruleset_from_ryu(f_name):
 
         The ryu ruleset can be a dump of flow stats, or flow mods.
 
-        f_name: The path to the pickled file of ryu flows
+        f_handle: An open file handle
         return: A list of Rules
     """
-    if f_name.endswith(".gz"):
-        import gzip
-        f_handle = gzip.GzipFile(f_name, "rb")
-    elif f_name.endswith(".bz2"):
-        import bz2
-        f_handle = bz2.BZ2File(f_name, "rb")
-    else:
-        f_handle = open(f_name, "rb")
     if six.PY3:
         stats = pickle.load(f_handle, encoding='latin1')
     else:
@@ -225,9 +249,53 @@ def ruleset_from_ryu(f_name):
     if isinstance(stats, dict):
         stats = stats["flow_stats"]
     ruleset = [rule_from_ryu(r) for r in stats]
-    f_handle.close()
-    del f_handle
+    return ruleset
 
+def ryu_from_jsondict(jsondict):
+    assert len(jsondict) == 1
+    for oftype, value in jsondict.items():
+        cls = getattr(parser, oftype)
+        return cls.from_jsondict(value)
+
+def ruleset_from_ryu_json(f_handle):
+    """ Loads a ryu ruleset from json
+
+        The ruleset can be compressed, either .gz or .bz2 and are
+        decompressed based on their extension.
+
+        The ryu ruleset can be a dump of flow stats, or flow mods.
+
+        f_handle: An open file handle
+        return: A list of Rules
+    """
+    if six.PY3:
+        stats = json.load(f_handle, encoding='latin1')
+    else:
+        stats = json.load(f_handle)
+
+    # Find something that looks about right
+    while isinstance(stats, dict):
+        first = next(iter(stats))
+        if len(stats) != 1:
+            print("ruleset_from_ryu_json: Warning found multiple values in a dict, using the first",
+                  file=sys.stderr)
+            print(next(iter(stats)), file=sys.stdout)
+        if isinstance(first, six.string_types) and first.startswith("OFP"):
+            break  # This should work and return a ruleset
+        print("ruleset_from_ryu_json: Unknown value in json", first, ". Skipping into contents.",
+              file=sys.stderr)
+        stats = stats[first]
+
+    if isinstance(stats, dict):
+        # Could be a OFPFlowStatsReply message, untested code path
+        dp = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
+        msg = ofp_msg_from_jsondict(dp, stats)
+        stats = msg.body
+    else:
+        assert isinstance(stats, list)
+        stats = [ryu_from_jsondict(r) for r in stats]
+
+    ruleset = [rule_from_ryu(r) for r in stats]
     return ruleset
 
 

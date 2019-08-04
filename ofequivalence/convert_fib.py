@@ -31,6 +31,7 @@ Each unique peer is assigned a unique output port
 # limitations under the License.
 
 from .rule import Rule, Match
+from .utils import open_compressed
 IP_MASK = 0xFFFFFFFF
 
 
@@ -51,32 +52,22 @@ def ruleset_from_fib(f_name):
     output_mapping = {}
     ruleset = []
 
-    if f_name.endswith(".gz"):
-        import gzip
-        f_handle = gzip.GzipFile(f_name, "rb")
-    elif f_name.endswith(".bz2"):
-        import bz2
-        f_handle = bz2.BZ2File(f_name, "rb")
-    else:
-        f_handle = open(f_name, "rb")
+    with open_compressed(f_name, "rb") as f_handle:
+        for line in f_handle:
+            line = line.split()
+            # line[1] is  "A.B.C.D/E"
+            subnet = line[1].split(b"/")
+            mask = int(subnet[1])
+            ipparts = subnet[0].split(b'.')
+            ip = (int(ipparts[0]) << 24 | int(ipparts[1]) << 16 |
+                  int(ipparts[2]) << 8 | int(ipparts[3]))
+            match_subnet = (ip, (IP_MASK<<(32-mask)) & IP_MASK)
+            match = Match([("IPV4_DST", match_subnet[0], match_subnet[1])])
+            if line[2] not in output_mapping:
+                count += 1
+                output_mapping[line[2]] = count
+            rule = Rule(priority=mask, table=0, match=match)
+            rule.instructions.write_actions.append("OUTPUT", output_mapping[line[2]])
+            ruleset.append(rule)
 
-    for line in f_handle:
-        line = line.split()
-        # line[1] is  "A.B.C.D/E"
-        subnet = line[1].split(b"/")
-        mask = int(subnet[1])
-        ipparts = subnet[0].split(b'.')
-        ip = (int(ipparts[0]) << 24 | int(ipparts[1]) << 16 |
-              int(ipparts[2]) << 8 | int(ipparts[3]))
-        match_subnet = (ip, (IP_MASK<<(32-mask)) & IP_MASK)
-        match = Match([("IPV4_DST", match_subnet[0], match_subnet[1])])
-        if line[2] not in output_mapping:
-            count += 1
-            output_mapping[line[2]] = count
-        rule = Rule(priority=mask, table=0, match=match)
-        rule.instructions.write_actions.append("OUTPUT", output_mapping[line[2]])
-        ruleset.append(rule)
-
-    f_handle.close()
-    del f_handle
     return ruleset

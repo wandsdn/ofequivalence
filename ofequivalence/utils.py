@@ -28,3 +28,15 @@ class nullcontext(object):
 
     def __exit__(self, *_args, **_kwargs):
         pass
+
+def open_compressed(f_name, mode="rb"):
+    """ open() a file which might be compressed """
+    if f_name.endswith(".gz"):
+        import gzip
+        f_handle = gzip.GzipFile(f_name, mode)
+    elif f_name.endswith(".bz2"):
+        import bz2
+        f_handle = bz2.BZ2File(f_name, mode)
+    else:
+        f_handle = open(f_name, mode)
+    return f_handle
