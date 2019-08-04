@@ -25,6 +25,7 @@ from .rule import MergeException, Rule, UniqueRules, Match
 from .headerspace import headerspace
 from .headerspace import get_wildcard_mask
 from .cuddbdd import wc_to_BDD, BDD
+from .utils import nullcontext
 
 # The MAX_PRIORITY rule in OpenFlow
 MAX_PRIORITY = 2**16
@@ -227,10 +228,6 @@ class AttachBDD(object):
                 del rule.as_BDD
 
 
-class NoopContext(object):
-    def __init__(self, *args, **kwargs): pass
-    __enter__ = __init__
-    __exit__ = __init__
 
 
 def add_parents_bdd(R, P, reaches, parent_to_edge=None):
@@ -262,7 +259,7 @@ def build_DAG(ruleset, add_parents=add_parents_bdd):
             packet-space encoding.
     """
     reaches = {}
-    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else nullcontext
     with _AttachBDD(ruleset):
         for R in ruleset:
             potential_parents = [Rj for Rj in ruleset
@@ -295,7 +292,7 @@ def build_DAG_prefix(ruleset, add_parents=add_parents_bdd):
 
     # Add the default rule to the bottom of the chain
     chain = [ruleset[0]]
-    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else nullcontext
     with _AttachBDD(ruleset):
         for rule in ruleset[1:]:
             # As rules are ordered, once we stop overlapping a rule we know
@@ -417,7 +414,7 @@ def cross_tables_DAG(stats, _build_DAG=build_DAG_incremental,
         returns: A list of dependencies in the format
                  [(f1, f2), (f1, f3), ...]
     """
-    _AttachBDD = AttachBDD if add_parents is add_parents_bdd else NoopContext
+    _AttachBDD = AttachBDD if "bdd" in add_parents.__name__ else nullcontext
     with UniqueRules(), _AttachBDD(stats):
         ruleset_tables = defaultdict(list)
         for rule in stats:
@@ -518,7 +515,7 @@ def directed_layout(G, scale=1.0, push_down=True, cluster=True,
     def _layout(nodes, key):
         levels = []
         if key is None:
-            key = lambda n: -n.priority + 100000 * n.table
+            key = sort_key_ruleset_priority
         for x in sorted(nodes, key=key):
             edges_in = [e[0] for e in G.edges() if e[1] == x]
             next_level = -1
