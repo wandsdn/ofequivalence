@@ -303,6 +303,9 @@ class Rule(object):
                     self.priority, self.cookie, self.match,
                     self.instructions, self.table)
 
+    def __repr__(self):
+        return str(self)
+
     def copy(self):
         """
         Copies the Flow
