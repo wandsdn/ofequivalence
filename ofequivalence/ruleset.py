@@ -309,17 +309,17 @@ def directed_layout(G, scale=1.0, push_down=True, cluster=True,
     return positions
 
 
-def create_similar_groups(ruleset, min_groups=None, rule2group=None,
+def create_similar_groups(ruleset, groups=None, rule2group=None,
                           deps=None):
-    """ Creates groupings of similar rules ready for select_minimised_ruleset
+    """ Creates groupings of similar rules ready for select_compressed_ruleset
 
-        For more details see minimise_ruleset
+        For more details see compress_ruleset
 
         ruleset: The ruleset to group
-        min_groups: A dict, if included filled in-place
+        groups: A dict, if included filled in-place
         rule2group: A dict, if included filled in-place
         deps: Optional, precomputed dependencies
-        return: (min_groups, rule2group)
+        return: (groups, rule2group)
     """
     def _get_similar_tuple(flow):
         """ Returns a tuple, to match similar looking rules """
@@ -343,36 +343,34 @@ def create_similar_groups(ruleset, min_groups=None, rule2group=None,
         return (tuple(sorted([x._u_id for x in flow.parents])),
                 tuple(sorted([x._u_id for x in flow.children])))
 
-    if min_groups is None:
-        min_groups = {}
+    if groups is None:
+        groups = {}
     if rule2group is None:
         rule2group = {}
 
     if deps is None:
-        min_deps = ruleset_deps_indirect.build_ruleset_deps(ruleset)
-    else:
-        min_deps = deps
+        deps = ruleset_deps_indirect.build_ruleset_deps(ruleset)
     # Tag each with children etc.
-    node_to_tree(min_deps, ruleset)
+    node_to_tree(deps, ruleset)
     # Add a unique sorting ID
     for i, rule in enumerate(ruleset):
         rule._u_id = i
 
-    # Minimisation groups
+    # Compression groups
     # Simply group by each of this
     rules_sorted = sorted(ruleset, key=_get_similar_tuple)
     for _, itr in groupby(rules_sorted, _get_similar_tuple):
         rules_grouped = sorted(itr, key=_get_p_and_c)
-        min_groups[rules_grouped[0]] = rules_grouped
+        groups[rules_grouped[0]] = rules_grouped
 
     # Try figure dependencies
-    for group, rules in viewitems(min_groups):
+    for group, rules in viewitems(groups):
         for rule in rules:
             rule2group[rule] = group
 
     # Keep splitting groups while a difference in dependencies exists
     while True:
-        for group, rules in viewitems(min_groups):
+        for group, rules in viewitems(groups):
             if len(rules) == 1:
                 continue
             new_groups = defaultdict(list)
@@ -382,32 +380,86 @@ def create_similar_groups(ruleset, min_groups=None, rule2group=None,
                 new_groups[(p_set, c_set)].append(rule)
             if len(new_groups) > 1:
                 # Replace the original group and recheck
-                del min_groups[group]
+                del groups[group]
                 for new_rules in viewvalues(new_groups):
-                    min_groups[new_rules[0]] = new_rules
+                    groups[new_rules[0]] = new_rules
                     for new_rule in new_rules:
                         rule2group[new_rule] = new_rules[0]
                 break
         else:
             break
 
-    return (min_groups, rule2group)
+    return (groups, rule2group)
+
+def _allowed_options(groups, rule2group, assigned, group):
+    res = set()
+    rule_options = groups[rule2group[group]]
+    for option in rule_options:
+        expected, overlap = _check_option_full(rule2group, assigned, option)
+        # Check if all child dependencies of this option have been selected
+        if expected == overlap:
+            res.add(option)
+    return res
+
+def _check_option_full(rule2group, assigned, rule):
+    """ Check if a rule has all the required dependencies with assigned rules
+
+        Vs. check_option_children, this checks all assigned groups
+    """
+    deps = set(rule.children + rule.parents)
+    overlap = deps.intersection(assigned)
+    expected = {rule2group[dep] for dep in deps}.intersection(assigned)
+    return expected, overlap
+
+def _check_option(rule2group, assigned, rule):
+    """ Check if a rule has all the required dependencies with assigned children
+
+        Assumes that all children rules have been assigned, and only children
+    """
+    children = set(rule.children)
+    overlap = children.intersection(assigned)
+    # NOTE: Building 'expected' like this seems excessive, but, is
+    # required.
+    # A simple overlap == children, or length check fails because
+    # an option might have multiple deps to rules in the same group. So
+    # this checks that one child from each group has been selected.
+    expected = {rule2group[child] for child in children}
+    return expected, overlap
+
+def _switch_assigned(groups, rule2group, assigned, new_assigned):
+    """ Make or change the assignment from a group """
+    old_assigned = rule2group[new_assigned]
+    if old_assigned != new_assigned:
+        rule_options = groups[old_assigned]
+        # We selected option, and update the mapping
+        for rule in rule_options:
+            rule2group[rule] = new_assigned
+        # Get index and move it to front of the list
+        index = rule_options.index(new_assigned)
+        assert index > 0
+        rule_options[0], rule_options[index] = (
+            rule_options[index], rule_options[0])
+        del groups[old_assigned]
+        groups[new_assigned] = rule_options
+        if old_assigned in assigned:  # Updated the selected assignment
+            assigned.remove(old_assigned)
+            assigned.add(new_assigned)
 
 
-def select_minimised_ruleset(ruleset, min_groups, rule2group):
-    """ Select the minimised rules, with create_similar_groups()'s output
+def select_compressed_ruleset(ruleset, groups, rule2group):
+    """ Select the compressed rules, with create_similar_groups()'s output
 
-        For more details see minimise_ruleset
+        For more details see compress_ruleset
 
         ruleset: The original ruleset
-        min_groups: From create_similar_groups
+        groups: From create_similar_groups
         rule2group: From create_similar_groups
-        return: A minimised ruleset
+        return: A compressed ruleset
     """
     # In order we traverse and pick rules such that we keep dependencies
     # Work from the bottom up, as following back paths will add the most
     # restrictions
-    unassigned_groups = sort_ruleset(min_groups)
+    unassigned_groups = sort_ruleset(groups)
 
     # Begin by assigning the default in the final table
     assigned = set((unassigned_groups.pop(),))
@@ -416,49 +468,59 @@ def select_minimised_ruleset(ruleset, min_groups, rule2group):
     # rules already assigned. Reverse order seems to work best.
     while unassigned_groups:
         assigning = unassigned_groups.pop()
-        rule_options = min_groups[assigning]
+        rule_options = groups[assigning]
         for option in rule_options:
-            # Check if all child dependencies of this option have been selected
-            children = set(option.children)
-            overlap = children.intersection(assigned)
-            # NOTE: Building 'expected' like this seems excessive, but, is
-            # required.
-            # A simple overlap == children, or length check fails because
-            # an option might have multiple deps to rules in the same group. So
-            # this checks that one child from each group has been selected.
-            expected = set()
-            for child in children:
-                expected.add(rule2group[child])
+            expected, overlap = _check_option(rule2group, assigned, option)
             if expected == overlap:
-                if option == assigning:
-                    # The first option already works, no-changes
-                    assert rule2group[option] == option
-                else:
-                    # We selected option, and update the mapping
-                    for rule in rule_options:
-                        assert rule in rule2group
-                        rule2group[rule] = option
-                    # Get index and move it to front of the list
-                    index = rule_options.index(option)
-                    assert index > 0
-                    rule_options[0], rule_options[index] = (
-                        rule_options[index], rule_options[0])
-                    del min_groups[assigning]
-                    min_groups[option] = rule_options
-                    assigning = option
+                _switch_assigned(groups, rule2group, assigned, option)
+                assigning = option
                 break
         else:
             # No single rule fulfils all dependency requirements
-            # Right now we don't know how best to deal with this case
-            debug()
+
+            # See if an easy solution exists by changing some assigned rules
+            # This only checks one level, changing the directly dependent groups
+            differences = {}
+            # Calculate which assigned groups might need to be changed
+            for opt in rule_options:
+                exp, over = _check_option_full(rule2group, assigned, opt)
+                differences[opt] = exp - over
+
+            # Start by considering the option requiring the fewest changes
+            best_diff = sorted(differences, key=lambda x: len(differences[x]))
+            for diff in best_diff:
+                # Can we pick a valid rule from all assigned groups
+                for rule in differences[diff]:
+                    allows = _allowed_options(groups, rule2group, assigned, rule)
+                    if not allows.intersection(set(diff.children)):
+                        break
+                else:
+                    # Yes we can move all rules, so lets do it
+                    # There is still a chance that in moving one breaks moving
+                    # another. But, seems unlikely
+                    for rule in differences[diff]:
+                        candidates = _allowed_options(groups, rule2group, assigned, rule)
+                        candidates = list(candidates.intersection(set(diff.children)))
+                        print("Candidates", len(candidates))
+                        _switch_assigned(groups, rule2group, assigned, candidates[0])
+                    assert diff in _allowed_options(groups, rule2group, assigned, diff)
+                    _switch_assigned(groups, rule2group, assigned, diff)
+                    assigning = diff
+                    break
+                continue
+            else:
+                # Could not shift rules around
+                # TODO, fail gracefully or add better logic here
+                from trepan.api import debug
+                debug()
 
         assigned.add(assigning)
 
     return sort_ruleset(assigned)
 
 
-def minimise_ruleset(ruleset, deps=None):
-    """ Creates a minimised ruleset which represents the original.
+def compress_ruleset(ruleset, deps=None):
+    """ Creates a compressed ruleset which represents the original.
 
         Minimises a ruleset by removing similar rules, yet maintaining
         the complexity between rules. This aims to remain representative
@@ -468,7 +530,7 @@ def minimise_ruleset(ruleset, deps=None):
         and then apply the same placements to all rules.
 
         The key to maintaining the original complexity is ensuring the all
-        dependencies between groups of similar rules remain in the minimised
+        dependencies between groups of similar rules remain in the compressed
         ruleset.
 
         We are very restrictive about what 'similar' rules are:
@@ -481,19 +543,19 @@ def minimise_ruleset(ruleset, deps=None):
         ruleset: The input ruleset
         deps: Optional list of precomputed dependencies for the ruleset
         return: (Minimised ruleset, mapping to similar rules). The mapping is
-                from the selected rule in the minimised ruleset to all
+                from the selected rule in the compressed ruleset to all
                 'similar' rules.
     """
     # Rule -> tuple(Rules)
-    min_groups = {}
+    groups = {}
     rule2group = {}
 
-    with UniqueRules(min_groups):
-        create_similar_groups(ruleset, deps=deps, min_groups=min_groups,
+    with UniqueRules(groups):
+        create_similar_groups(ruleset, deps=deps, groups=groups,
                               rule2group=rule2group)
-        select_minimised_ruleset(ruleset, min_groups=min_groups,
-                                 rule2group=rule2group)
+        select_compressed_ruleset(ruleset, groups=groups,
+                                  rule2group=rule2group)
 
     # Now pick rules which have the deps
-    new_ruleset = sort_ruleset(min_groups)
-    return (new_ruleset, min_groups)
+    new_ruleset = sort_ruleset(groups)
+    return (new_ruleset, groups)
