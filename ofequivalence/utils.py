@@ -14,6 +14,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from .cuddbdd import wc_to_BDD
 
 
 class nullcontext(object):
@@ -28,6 +29,32 @@ class nullcontext(object):
 
     def __exit__(self, *_args, **_kwargs):
         pass
+
+
+class AttachBDD(object):
+    """ Adds as_BDD to a rule
+        Undone once the block is left
+
+        Usage with:
+        with(ruleset):
+            pass
+    """
+    def __init__(self, ruleset):
+        self.ruleset = ruleset
+
+    def __enter__(self):
+        # Re-entry, assume if one rule does all do
+        if hasattr(self.ruleset[0], "as_BDD"):
+            self.ruleset = None
+            return
+        for rule in self.ruleset:
+            rule.as_BDD = wc_to_BDD(rule.match.get_wildcard(), "1", "1")
+
+    def __exit__(self, *args):
+        if self.ruleset:
+            for rule in self.ruleset:
+                del rule.as_BDD
+
 
 def open_compressed(f_name, mode="rb"):
     """ open() a file which might be compressed """
