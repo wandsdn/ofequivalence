@@ -607,9 +607,11 @@ def create_similar_groups(ruleset, min_groups=None, rule2group=None,
             actions.update([flow.instructions.apply_actions.to_type(k)
                             for k in flow.instructions.apply_actions])
         actions = tuple(sorted(actions, key=str))
+        goto = (flow.instructions.goto_table if
+                flow.instructions.goto_table is not None else 0)
         return (flow.table, -flow.priority,
                 get_wildcard_mask(flow.match.get_wildcard()),
-                flow.instructions.goto_table, actions
+                goto, actions
                )
 
     def _get_p_and_c(flow):
