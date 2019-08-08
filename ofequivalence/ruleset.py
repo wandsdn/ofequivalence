@@ -501,7 +501,6 @@ def select_compressed_ruleset(ruleset, groups, rule2group):
                     for rule in differences[diff]:
                         candidates = _allowed_options(groups, rule2group, assigned, rule)
                         candidates = list(candidates.intersection(set(diff.children)))
-                        print("Candidates", len(candidates))
                         _switch_assigned(groups, rule2group, assigned, candidates[0])
                     assert diff in _allowed_options(groups, rule2group, assigned, diff)
                     _switch_assigned(groups, rule2group, assigned, diff)
