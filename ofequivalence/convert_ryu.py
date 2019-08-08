@@ -26,6 +26,7 @@ except ImportError:
     from pickle import UnpicklingError
 import json
 import sys
+from io import TextIOWrapper
 
 import six
 from six import viewitems
@@ -37,6 +38,7 @@ from ryu.ofproto.ofproto_parser import ofp_msg_from_jsondict
 from .rule import Rule, Match, Instructions, ActionSet, ActionList, Group
 from .utils import open_compressed
 
+DP = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
 
 def _normalise_bytes(value):
     """ Converts bytes or network strings to an int """
@@ -207,6 +209,64 @@ def rule_from_ryu(ryu_flow):
     return rule
 
 
+def ruleset_to_ryu(ruleset):
+    """ Convert a ruleset from Rules to ryu OFPFlowMods
+        Note: Drops extra_messages returned by rule_to_ryu
+    """
+    return [rule_to_ryu(r)[0] for r in ruleset]
+
+
+def ruleset_to_ryu_json(ruleset, f_name):
+    """ Write a ruleset of ryu OFPFlowMods to a file in json format
+
+        f_name: The name of the output file
+    """
+    if ruleset:
+        assert isinstance(ruleset[0], Rule)
+    as_json = [r.to_jsondict() for r in ruleset_to_ryu(ruleset)]
+    with open(f_name, 'w') as f_out:
+        json.dump(as_json, f_out)
+
+
+def ruleset_to_ryu_pickle(ruleset, f_name):
+    """ Write a pickled ruleset of ryu OFPFlowMods to a file
+
+        f_name: The name of the output file
+    """
+    if ruleset:
+        assert isinstance(ruleset[0], Rule)
+    as_ryu = ruleset_to_ryu(ruleset)
+    with open(f_name, 'wb') as f_out:
+        pickle.dump(as_ryu, f_out)
+
+
+def ruleset_to_pickle(ruleset, f_name):
+    """ Write a pickled ruleset of Rules to a file
+
+        f_name: The path to the file
+        return: A list of Rules
+    """
+    if ruleset:
+        assert isinstance(ruleset[0], Rule)
+    with open(f_name, 'wb') as f_out:
+        pickle.dump(ruleset, f_out)
+
+
+def ruleset_from_pickle(f_name):
+    """ Read a pickled ruleset from disk
+
+        f_name: The name of the input file
+    """
+    with open(f_name, 'rb') as f_in:
+        if six.PY3:
+            ruleset = pickle.load(f_in, encoding='latin1')
+        else:
+            ruleset = pickle.load(f_in)
+    if ruleset:
+        assert isinstance(ruleset[0], Rule)
+    return ruleset
+
+
 def ruleset_from_ryu(f_name):
     """ Loads a ryu ruleset from either a pickle or json format
 
@@ -252,9 +312,15 @@ def ruleset_from_ryu_pickle(f_handle):
     return ruleset
 
 def ryu_from_jsondict(jsondict):
+    """ Load a ryu object from a json dictionary
+
+        jsondict: A dictionary loaded by json.load
+    """
     assert len(jsondict) == 1
     for oftype, value in jsondict.items():
         cls = getattr(parser, oftype)
+        if issubclass(cls, parser.OFPFlowMod):
+            value["datapath"] = DP
         return cls.from_jsondict(value)
 
 def ruleset_from_ryu_json(f_handle):
@@ -269,7 +335,8 @@ def ruleset_from_ryu_json(f_handle):
         return: A list of Rules
     """
     if six.PY3:
-        stats = json.load(f_handle, encoding='latin1')
+        with TextIOWrapper(f_handle) as text_handle:
+            stats = json.load(text_handle)
     else:
         stats = json.load(f_handle)
 
@@ -288,8 +355,7 @@ def ruleset_from_ryu_json(f_handle):
 
     if isinstance(stats, dict):
         # Could be a OFPFlowStatsReply message, untested code path
-        dp = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
-        msg = ofp_msg_from_jsondict(dp, stats)
+        msg = ofp_msg_from_jsondict(DP, stats)
         stats = msg.body
     else:
         assert isinstance(stats, list)
@@ -517,6 +583,7 @@ def rule_to_ryu(rule):
 
     ryu = parser.OFPFlowMod(datapath=None,
                             table_id=rule.table,
+                            cookie=rule.cookie,
                             priority=rule.priority,
                             match=match,
                             instructions=instructions

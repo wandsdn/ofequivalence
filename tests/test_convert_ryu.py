@@ -16,6 +16,7 @@
 # limitations under the License.
 
 import unittest
+from tempfile import NamedTemporaryFile
 
 from ryu.ofproto.ofproto_v1_3_parser import (
         OFPMatch, OFPInstructionWriteMetadata, OFPInstructionGotoTable,
@@ -30,8 +31,11 @@ from ryu.ofproto.ofproto_v1_3 import (
         OFPFC_ADD)
 
 from ofequivalence.convert_ryu import (
-        match_from_ryu, instructions_from_ryu, rule_from_ryu, actions_from_ryu)
+        match_from_ryu, instructions_from_ryu, rule_from_ryu, actions_from_ryu,
+        ruleset_to_ryu_json, ruleset_from_ryu, ruleset_to_ryu_pickle,
+        ruleset_to_pickle, ruleset_from_pickle)
 from ofequivalence.rule import Match, Instructions, ActionSet, ActionList, Rule
+from .rulesets import REWRITE_RULESET, COVISOR_RULESET, REANNZ_RULESET
 
 
 class TestConvertRyu(unittest.TestCase):
@@ -206,6 +210,57 @@ class TestConvertRyu(unittest.TestCase):
                          ActionList([('SET_NW_TTL', 0xff)]))
         self.assertEqual(actions_from_ryu([OFPActionDecNwTtl()], 'list'),
                          ActionList([('DEC_NW_TTL', None)]))
+
+    def test_save_ryu_json(self):
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_json(REWRITE_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(REWRITE_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_json(COVISOR_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(COVISOR_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_json(REANNZ_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(REANNZ_RULESET, loaded)
+
+    def test_save_ryu_pickle(self):
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_pickle(REWRITE_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(REWRITE_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_pickle(COVISOR_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(COVISOR_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_ryu_pickle(REANNZ_RULESET, tmp_file.name)
+            loaded = ruleset_from_ryu(tmp_file.name)
+        self.assertEqual(REANNZ_RULESET, loaded)
+
+    def test_save_pickle(self):
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_pickle(REWRITE_RULESET, tmp_file.name)
+            loaded = ruleset_from_pickle(tmp_file.name)
+        self.assertEqual(REWRITE_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_pickle(COVISOR_RULESET, tmp_file.name)
+            loaded = ruleset_from_pickle(tmp_file.name)
+        self.assertEqual(COVISOR_RULESET, loaded)
+
+        with NamedTemporaryFile() as tmp_file:
+            ruleset_to_pickle(REANNZ_RULESET, tmp_file.name)
+            loaded = ruleset_from_pickle(tmp_file.name)
+        self.assertEqual(REANNZ_RULESET, loaded)
 
 
 if __name__ == '__main__':
