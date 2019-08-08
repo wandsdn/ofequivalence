@@ -80,6 +80,7 @@ setup(
     entry_points={
         "console_scripts": [
             "check_equivalence = ofequivalence.check_equivalence:main"
+            "compress_ruleset = ofequivalence.compress_ruleset:main"
             ]
         }
     )

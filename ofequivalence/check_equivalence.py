@@ -19,7 +19,6 @@
 
 from __future__ import print_function
 import argparse
-from timeit import default_timer
 
 try:
     from tqdm import tqdm
@@ -34,27 +33,10 @@ from .normalisebdd import (find_conflicting_paths, normalise_naive,
                            normalise_divide_and_conquer, check_equal)
 from .convert_ryu import ruleset_from_ryu
 from .convert_fib import ruleset_from_fib
+from .utils import Timer
 
 OF = OpenFlow1_3_5()
 
-
-class Time(object):
-    """ A named timer, which can be used with 'with', to print when closed
-
-        e.g.
-        with Time("Time to do something: "):
-            do_something()
-    """
-    start = None
-
-    def __init__(self, name):
-        self.name = name
-
-    def __enter__(self):
-        self.start = default_timer()
-
-    def __exit__(self, _type, value, traceback):
-        print("%s: %s"%(self.name, default_timer()-self.start))
 
 def reverse_fields(ruleset):
     """ Reverse the byte ordering of fields.
@@ -119,37 +101,37 @@ def main():
     single_tables = {}
     if args.files:
         for f_name in args.files:
-            with Time("Loading ryu file: " + f_name):
+            with Timer("Loading ryu file: " + f_name):
                 ruleset = ruleset_from_ryu(f_name)
                 rulesets[f_name] = ruleset
 
     if args.FIB:
         for f_name in args.FIB:
-            with Time("Loading FIB file: " + f_name):
+            with Timer("Loading FIB file: " + f_name):
                 ruleset = ruleset_from_fib(f_name)
                 rulesets[f_name] = ruleset
 
     for f_name, ruleset in rulesets.items():
         print("Processing ruleset: " + f_name)
         print("Input rules: " + str(len(ruleset)))
-        with Time("Sorting"):
+        with Timer("Sorting"):
             ruleset = sorted([x for x in ruleset],
                              key=lambda f: (f.table, -f.priority))
 
         if args.reverse:
-            with Time("Reverse"):
+            with Timer("Reverse"):
                 reverse_fields(ruleset)
 
-        with Time("to_single"):
+        with Timer("to_single"):
             single_table = to_single_table(ruleset)
             single_tables[f_name] = single_table
         print("Single-table size: " + str(len(single_table)))
 
         if args.divide_conquer:
-            with Time("Normalise Divide & Conquer"):
+            with Timer("Normalise Divide & Conquer"):
                 norm = normalise_divide_and_conquer(single_table)
         else:
-            with Time("Normalise Naive"):
+            with Timer("Normalise Naive"):
                 norm = normalise_naive(single_table)
 
         print("Unique nodes in BDD:", len(norm))

@@ -31,11 +31,11 @@ Each unique peer is assigned a unique output port
 # limitations under the License.
 
 from .rule import Rule, Match
-from .utils import open_compressed
+from .utils import open_compressed, nullcontext
 IP_MASK = 0xFFFFFFFF
 
 
-def ruleset_from_fib(f_name):
+def ruleset_from_fib(file):
     """ Convert a ASCII file representing a FIB to Rule()s
 
         Expected format is cisco (like RouteViews publishes):
@@ -45,14 +45,17 @@ def ruleset_from_fib(f_name):
 
         Returns both the ruleset and output mapping.
 
-        f_name: The path to the pickled file of ryu flows
+        file: The readable binary file-like object, or the name of the input file
         return: (ruleset, output_mapping)
     """
     count = 0
     output_mapping = {}
     ruleset = []
 
-    with open_compressed(f_name, "rb") as f_handle:
+    _open_compressed = open_compressed
+    if hasattr(file, 'read'):
+        _open_compressed = nullcontext
+    with _open_compressed(file, "rb") as f_handle:
         for line in f_handle:
             line = line.split()
             # line[1] is  "A.B.C.D/E"

@@ -138,7 +138,7 @@ def _recurse_goto_deps(tables, table, match, parents, edges):
 
 
 def build_ruleset_deps(ruleset, build_table=build_table_deps,
-                       use_bdd=False):
+                       use_bdd=None):
     """ Build the dependencies for a multi-table ruleset
 
         ruleset: Takes a list of Rule objects
@@ -157,6 +157,9 @@ def build_ruleset_deps(ruleset, build_table=build_table_deps,
             _recurse_goto_deps(ruleset_tables, table, None, tuple(), edges)
 
         for table in ruleset_tables.values():
-            edges.update(build_table(table, use_bdd))
+            if use_bdd is not None:
+                edges.update(build_table(table, use_bdd))
+            else:
+                edges.update(build_table(table))
 
     return list(edges)

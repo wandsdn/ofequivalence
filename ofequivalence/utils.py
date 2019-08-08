@@ -14,7 +14,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import print_function
+from timeit import default_timer
 from .cuddbdd import wc_to_BDD
+
+
+class Timer(object):
+    """ A named timer context, which can be used with 'with', to time a block of code
+
+        e.g.
+        with Time("Time to do something"):
+            do_something()
+
+        ~ Time to do something: 1.273 secs
+    """
+    message = None
+    start = None
+    end = None
+    file = None
+
+    def __init__(self, message, file=None):
+        self.message = message
+        self.file = file
+
+    def __enter__(self):
+        self.start = default_timer()
+
+    def __exit__(self, _type, value, traceback):
+        self.end = default_timer()
+        print("%s: %s secs"%(self.message, self.end-self.start), file=self.file)
 
 
 class nullcontext(object):

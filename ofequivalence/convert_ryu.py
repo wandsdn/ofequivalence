@@ -36,7 +36,7 @@ from ryu.ofproto.ofproto_protocol import ProtocolDesc
 from ryu.ofproto.ofproto_parser import ofp_msg_from_jsondict
 
 from .rule import Rule, Match, Instructions, ActionSet, ActionList, Group
-from .utils import open_compressed
+from .utils import open_compressed, nullcontext
 
 DP = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
 
@@ -216,66 +216,84 @@ def ruleset_to_ryu(ruleset):
     return [rule_to_ryu(r)[0] for r in ruleset]
 
 
-def ruleset_to_ryu_json(ruleset, f_name):
+def ruleset_to_ryu_json(ruleset, file):
     """ Write a ruleset of ryu OFPFlowMods to a file in json format
 
-        f_name: The name of the output file
+        file: A writable text file-like object, or the name of the output file
     """
     if ruleset:
         assert isinstance(ruleset[0], Rule)
     as_json = [r.to_jsondict() for r in ruleset_to_ryu(ruleset)]
-    with open(f_name, 'w') as f_out:
-        json.dump(as_json, f_out)
+    try:
+        with open(file, 'w') as f_out:
+            json.dump(as_json, f_out)
+    except TypeError:
+        json.dump(as_json, file)
 
-
-def ruleset_to_ryu_pickle(ruleset, f_name):
+def ruleset_to_ryu_pickle(ruleset, file):
     """ Write a pickled ruleset of ryu OFPFlowMods to a file
 
-        f_name: The name of the output file
+        file: A writable binary file-like object, or the name of the output file
     """
     if ruleset:
         assert isinstance(ruleset[0], Rule)
     as_ryu = ruleset_to_ryu(ruleset)
-    with open(f_name, 'wb') as f_out:
-        pickle.dump(as_ryu, f_out)
+    try:
+        with open(file, 'wb') as f_out:
+            pickle.dump(as_ryu, f_out)
+    except TypeError:
+        pickle.dump(as_ryu, file)
 
 
-def ruleset_to_pickle(ruleset, f_name):
+def ruleset_to_pickle(ruleset, file):
     """ Write a pickled ruleset of Rules to a file
 
-        f_name: The path to the file
-        return: A list of Rules
+        file: A writable binary file-like object, or the name of the output file
     """
     if ruleset:
         assert isinstance(ruleset[0], Rule)
-    with open(f_name, 'wb') as f_out:
-        pickle.dump(ruleset, f_out)
+    try:
+        with open(file, 'wb') as f_out:
+            pickle.dump(ruleset, f_out)
+    except TypeError:
+        pickle.dump(ruleset, file)
 
 
-def ruleset_from_pickle(f_name):
+def ruleset_from_pickle(file):
     """ Read a pickled ruleset from disk
 
-        f_name: The name of the input file
+        file: The readable binary file-like object, or the name of the input file
+        return: A ruleset, a list of Rules
     """
-    with open(f_name, 'rb') as f_in:
+    try:
+        with open(file, 'rb') as f_in:
+            if six.PY3:
+                ruleset = pickle.load(f_in, encoding='latin1')
+            else:
+                ruleset = pickle.load(f_in)
+    except TypeError:
         if six.PY3:
-            ruleset = pickle.load(f_in, encoding='latin1')
+            ruleset = pickle.load(file, encoding='latin1')
         else:
-            ruleset = pickle.load(f_in)
+            ruleset = pickle.load(file)
+
     if ruleset:
         assert isinstance(ruleset[0], Rule)
     return ruleset
 
 
-def ruleset_from_ryu(f_name):
+def ruleset_from_ryu(file):
     """ Loads a ryu ruleset from either a pickle or json format
 
-        f_name: The path to the file
+        file: The readable binary file-like object, or the name of the input file
         return: A list of Rules
     """
-    with open_compressed(f_name, "rb") as f_handle:
+    _open_compressed = open_compressed
+    if hasattr(file, 'read'):
+        _open_compressed = nullcontext
+    with _open_compressed(file, "rb") as f_handle:
         ruleset = None
-        if 'json' in f_name or 'jsn' in f_name:
+        if 'json' in file or 'jsn' in file:
             # Try json first
             try:
                 ruleset = ruleset_from_ryu_json(f_handle)
