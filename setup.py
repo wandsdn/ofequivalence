@@ -79,7 +79,7 @@ setup(
     ext_modules=[_cbdd, _cudd, _utils],
     entry_points={
         "console_scripts": [
-            "check_equivalence = ofequivalence.check_equivalence:main"
+            "check_equivalence = ofequivalence.check_equivalence:main",
             "compress_ruleset = ofequivalence.compress_ruleset:main"
             ]
         }
