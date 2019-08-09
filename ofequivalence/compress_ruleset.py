@@ -52,9 +52,9 @@ def main():
                         help="Print timing information")
     parser.add_argument('--direct', action='store_true',
                         help="Consider only direct method dependencies")
-    parser.add_argument('--bdd', action='store_true', default='None',
+    parser.add_argument('--bdd', action='store_true', default=None,
                         help="Force the use of BDDs in calculations, unsupported with some combinations")
-    parser.add_argument('--headerspace', action='store_true', default='None',
+    parser.add_argument('--headerspace', action='store_true', default=None,
                         help="Force the use of headerspace in calculations, unsupported with some combinations")
     parser.add_argument('--output', default=None,
                         help="Save the compressed ruleset to a file")

@@ -158,7 +158,7 @@ def build_ruleset_deps(ruleset, build_table=build_table_deps,
 
         for table in ruleset_tables.values():
             if use_bdd is not None:
-                edges.update(build_table(table, use_bdd))
+                edges.update(build_table(table, use_bdd=use_bdd))
             else:
                 edges.update(build_table(table))
 
