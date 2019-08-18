@@ -656,26 +656,51 @@ class ActionList(object):
             del new_actions[i]
         self.replace(new_actions)
 
-    def _per_output_actions(self):
-        # TODO XXX this assumes that a port is only listed once
+    def _per_output_actions(self, pass_through=False):
+        """
+            pass_through: Default False. If True the key 'pass' mapped
+                          to the actions passed through to the next rule.
+            return: A port to tuple mapping, suitable for equivalence check
+        """
         if self.per_output_actions is not None:
+            if not pass_through:
+                cpy = self.per_output_actions.copy()
+                del cpy["pass"]
+                return cpy
             return self.per_output_actions
+        actions = self.__per_output_actions()
+        for value in actions.values():
+            value._remove_redundant()
+        self.per_output_actions = {k: tuple(v) for k, v in actions.items()}
+        if not pass_through:
+            cpy = self.per_output_actions.copy()
+            del cpy["pass"]
+            return cpy
+        return self.per_output_actions
+
+    def __per_output_actions(self):
+        """ return: A port to ActionList mapping of the actions applied,
+                     may still include redundancies. Includes the port
+                     'pass' which represents to traffic passing through the
+                     rule.
+        """
+        # TODO XXX this assumes that a port is only listed once
         current_state = ActionList()
         res = {}
-        for a in self:
-            if a[0] == 'OUTPUT':
-                current_state._remove_redundant()
-                res[a[1]] = list(current_state)
-                res[a[1]].append(a)
-            elif a[0] == 'GROUP':
+        for action in self:
+            if action[0] == 'OUTPUT':
+                res[action[1]] = ActionList(current_state)
+                # Finally add the output action
+                res[action[1]].append(*action)
+            elif action[0] == 'GROUP':
                 group_res = {}
-                for bucket in a[1].buckets:
-                    group_res.update(bucket._per_output_actions())
+                for bucket in action[1].buckets:
+                    group_res.update(bucket.__per_output_actions())
                 for k, v in viewitems(group_res):
-                    res[k] = list(current_state + v)
+                    res[k] = current_state + v
             else:
-                current_state.append(*a)
-        self.per_output_actions = res
+                current_state.append(*action)
+        res['pass'] = current_state
         return res
 
     def equiv_equal(self, other):

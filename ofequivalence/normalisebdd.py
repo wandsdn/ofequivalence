@@ -90,8 +90,8 @@ def normalise_set_fields(rule):
             # Remove all set field x from the outputs
             new_actions = {}
             for port, actions in pp_actions.items():
-                new_actions[port] = [action for action in actions
-                                     if action[1] not in combination]
+                new_actions[port] = tuple((action for action in actions
+                                     if action[1] not in combination))
             # Should probably check action type here but mah, why bother
             # only set actions are going to have the format (field, value)
             # anyway
@@ -120,15 +120,16 @@ def normalise_divide_and_conquer(rules, progress=False,
         return: A canonical form which should be considered opaque. In practice
                 this is a BDD.
     """
+    assert len({rule.table for rule in rules}) <= 1
     bdds = []
     for rule in rules:
         if match_redundancy:
             for match_wc, actions in normalise_set_fields(rule):
-                bdds.append(wc_to_BDD(match_wc, actions, str(actions)))
+                bdds.append(wc_to_BDD(match_wc, actions, frozenset(actions.items())))
         else:
             actions = rule.instructions.full_actions()._per_output_actions()
             bdds.append(wc_to_BDD(rule.match.get_wildcard(),
-                                  actions, str(actions)))
+                                  actions, frozenset(actions.items())))
     while len(bdds) > 1:
         pairs = zip(bdds[::2], bdds[1::2])
         if progress:
@@ -156,17 +157,18 @@ def normalise_naive(rules, progress=False, match_redundancy=False):
         return: A canonical form which should be considered opaque. In practice
                 this is a BDD.
     """
+    assert len({rule.table for rule in rules}) <= 1
     bdd = BDD()
     if progress:
         rules = tqdm(rules)
     for rule in rules:
         if match_redundancy:
             for match_wc, actions in normalise_set_fields(rule):
-                bdd = bdd + wc_to_BDD(match_wc, actions, str(actions))
+                bdd = bdd + wc_to_BDD(match_wc, actions, frozenset(actions.items()))
         else:
             actions = rule.instructions.full_actions()._per_output_actions()
             bdd = bdd + wc_to_BDD(rule.match.get_wildcard(),
-                                  actions, str(actions))
+                                  actions, frozenset(actions.items()))
     return bdd
 
 # Use divide and conquer by default as it is faster

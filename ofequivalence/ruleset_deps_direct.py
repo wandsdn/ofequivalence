@@ -2,7 +2,7 @@
 Methods for calculating the direct dependencies of an OpenFlow 1.3 ruleset.
 
 Direct dependencies refer to only directly shadowed rules, or direct goto's.
-For consistancy, by default all functions use the BDD implementation.
+For consistency, by default all functions use the BDD implementation.
 Despite in some cases headerspace being faster, such as a prefix table.
 Overall though using BDD, allows this to more easily be combined with other functions
 
