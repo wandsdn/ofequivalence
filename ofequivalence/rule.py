@@ -932,6 +932,27 @@ class Instructions(object):
         """ Returns a ActionList of both apply and write actions """
         return self.apply_actions + self.write_actions
 
+    def canonical(self):
+        """ Return a canonical representation of this instruction
+
+            The returned value will equal another in terms of overall forwarding
+            if, in all cases, this set of instructions is equivalent to the
+            other, including when merged with any other instruction.
+
+            This flattens groups and redundancies out of actions.
+            But, considers differences in apply and write actions, and
+            the next table, meter etc.
+
+            return: A hashable tuple, do not assume anything about the contents
+        """
+        apply_inst = self.apply_actions._per_output_actions(pass_through=True)
+        write_inst = self.write_actions._per_output_actions(pass_through=True)
+        apply_inst = frozenset(apply_inst.items())
+        write_inst = frozenset(write_inst.items())
+
+        return (self.clear_actions, self.goto_table, self.meter,
+                self.write_metadata, apply_inst, write_inst)
+
     def merge(self, r):
         """ Merge two instructions together (write and apply actions)
             self: The lefthand instructions
