@@ -271,7 +271,7 @@ def _collect_paths(bdd, ruleset):
     return collected
 
 
-def find_conflicting_paths(diff, orig_flows, new_flows):
+def find_conflicting_paths(diff, orig_flows, new_flows, no_sort=False):
     """ Maps a BDD difference back to the paths in the ruleset
 
         Takes two rulesets and returns a mapping from the original paths
@@ -283,6 +283,8 @@ def find_conflicting_paths(diff, orig_flows, new_flows):
         diff: The difference, resulting from check_equal
         orig_flows: The original single-table ruleset
         new_flows: The new single-table ruleset
+        no_sort: Ignore the priority of rules, assume orig_flows and new_flows
+                 in decreasing priority order.
         return: A dict mapping the original paths attached, to a
                 set of the conflicting flows in new_flows
                 (i.e. those flows on paths which match the same traffic)
@@ -290,14 +292,15 @@ def find_conflicting_paths(diff, orig_flows, new_flows):
         NOTE: A path is a list of flows each of which 'goes to' the next until
               no more gotos are found and the packet exits the pipeline.
     """
-    orig_flows = sort_ruleset(orig_flows)
-    new_flows = sort_ruleset(new_flows)
-    r = {}
+    if not no_sort:
+        orig_flows = sort_ruleset(orig_flows)
+        new_flows = sort_ruleset(new_flows)
+    res = {}
 
     conflicting_orig_paths = _collect_paths(diff, orig_flows)
     for orig_path, orig_path_BDD in conflicting_orig_paths:
         new_conflicts = []
         for new_path, _bdd in _collect_paths(orig_path_BDD, new_flows):
             new_conflicts.append(new_path)
-        r[orig_path] = frozenset(new_conflicts)
-    return r
+        res[orig_path] = frozenset(new_conflicts)
+    return res
