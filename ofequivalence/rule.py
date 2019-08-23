@@ -534,6 +534,7 @@ class ActionList(object):
         """ Remove an item """
         offset = 0
         self.orig_order.remove(x)
+        self.invalidate_cache()
         for l in range(len(self.action_levels)):
             level = self.action_levels[l]
             if x in level:
@@ -790,8 +791,22 @@ class ActionList(object):
 
         In both cases elements take the form (key, value)
         """
+        # It is much better to rebuild from scratch, when removing many items
+        remove = list(remove)
+        if len(remove) > 1:
+            new_actions = self.orig_order[:]
+
+            # list.remove() removes the first matching item
+            for r in remove:
+                new_actions.remove(r)
+
+            cpy = self.__class__(dup=new_actions+list(add))
+            self.ttp_link = self.ttp_link
+            self.binding = self.binding
+            return cpy
+
         cpy = self.__class__(dup=self)
-        for r in remove:
+        for r in remove:  # Will iterate at most once
             cpy.remove(r)
         for a in add:
             cpy.append(*a)
