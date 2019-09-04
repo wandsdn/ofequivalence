@@ -1012,36 +1012,41 @@ class Bucket(ActionSet):
     """
 
 
-class Group(list):
+class Group(object):
     """
-    A list of buckets.
+    A OpenFlow group, including a list of buckets stored as a tuple.
     """
     type_ = None
     number = None
     buckets = None
     ttp_link = None
+    _hash = None
 
     def __init__(self, dup=None):
         if dup is not None:
-            list.__init__(self, dup)
             self.type_ = dup.type_
+            self.numer = dup.number
+            self.buckets = dup.buckets
+            self.ttp_link = dup.ttp_link
+            self._hash = dup._hash
         else:
-            list.__init__(self)
-        self.buckets = []
+            self.buckets = tuple()
 
     def __eq__(self, other):
         if isinstance(other, Group):
-            return (self.type_ == other.type_ and list.__eq__(self, other))
+            return self.type_ == other.type_ and self.buckets == other.buckets
+        return False
 
     def __hash__(self):
-        # TODO XXX
-        return 0
+        if self._hash is None:
+            self._hash = hash((self.type_, tuple(self.buckets)))
+        return self._hash
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def empty(self):
-        return len(self) == 0
+        return len(self.buckets) == 0
 
     def __str__(self):
         return "Group-" + str(self.type_) + " Buckets(" + str([
