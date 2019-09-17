@@ -199,7 +199,7 @@ def normalise(rules, match_redundancy=False):
     # Convert to (wildcard -> action) mapping
     rules = [(x.match.get_wildcard(),
               (x.instructions.apply_actions +
-                  x.instructions.write_actions)._per_output_actions())
+                  x.instructions.write_actions).per_output_actions())
              for x in rules]
 
     # So we want to expand up every rule

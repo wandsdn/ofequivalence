@@ -54,17 +54,17 @@ def normalise_set_fields(rule):
 
     rule: The flow rule
     output: A list of priority-ordered (highest first)
-    (wildcard, per output actions) pairs. See _per_output_actions().
+    (wildcard, per output actions) pairs. See per_output_actions().
 
     Bugs: Does not correctly account for vlan_vid as the tag depth is
           not considered. TODO
     """
-    pp_actions = rule.instructions.full_actions()._per_output_actions()
+    pp_actions = rule.instructions.full_actions().per_output_actions()
     res = []
 
     # Collect all unique set fields
     set_fields = set()
-    for output in pp_actions.values():
+    for _, output in pp_actions:
         for action in output:
             if action[0] == "SET_FIELD":
                 set_fields.add(action[1])
@@ -88,19 +88,19 @@ def normalise_set_fields(rule):
                 continue
 
             # Remove all set field x from the outputs
-            new_actions = {}
-            for port, actions in pp_actions.items():
-                new_actions[port] = tuple((action for action in actions
-                                     if action[1] not in combination))
+            new_actions = set()
+            for port, actions in pp_actions:
+                new_actions.add((port, tuple((action for action in actions
+                                              if action[1] not in combination))))
             # Should probably check action type here but mah, why bother
             # only set actions are going to have the format (field, value)
             # anyway
-            res.append((overlap, new_actions))
+            res.append((overlap, frozenset(new_actions)))
 
     # Lowest priority add the original
     res.append((rule.match.get_wildcard(), pp_actions))
-    for rule in res:
-        print(flow_wildcard_to_flowmatches(rule[0], Match), rule[1])
+    #for rule in res:
+    #    print(flow_wildcard_to_flowmatches(rule[0], Match), rule[1])
     return res
 
 
@@ -125,11 +125,11 @@ def normalise_divide_and_conquer(rules, progress=False,
     for rule in rules:
         if match_redundancy:
             for match_wc, actions in normalise_set_fields(rule):
-                bdds.append(wc_to_BDD(match_wc, actions, frozenset(actions.items())))
+                bdds.append(wc_to_BDD(match_wc, actions, actions))
         else:
-            actions = rule.instructions.full_actions()._per_output_actions()
+            actions = rule.instructions.full_actions().per_output_actions()
             bdds.append(wc_to_BDD(rule.match.get_wildcard(),
-                                  actions, frozenset(actions.items())))
+                                  actions, actions))
     while len(bdds) > 1:
         pairs = zip(bdds[::2], bdds[1::2])
         if progress:
@@ -164,11 +164,11 @@ def normalise_naive(rules, progress=False, match_redundancy=False):
     for rule in rules:
         if match_redundancy:
             for match_wc, actions in normalise_set_fields(rule):
-                bdd = bdd + wc_to_BDD(match_wc, actions, frozenset(actions.items()))
+                bdd = bdd + wc_to_BDD(match_wc, actions, actions)
         else:
-            actions = rule.instructions.full_actions()._per_output_actions()
+            actions = rule.instructions.full_actions().per_output_actions()
             bdd = bdd + wc_to_BDD(rule.match.get_wildcard(),
-                                  actions, frozenset(actions.items()))
+                                  actions, actions)
     return bdd
 
 # Use divide and conquer by default as it is faster
@@ -190,6 +190,8 @@ def check_equal_match_redundancy(a, b):
     # For every path collect the left and right sides
     for match, left, right in BDD_to_matches(diff):
         # Check early if keys (i.e. output ports) fail to match
+        left = dict(left)
+        right = dict(right)
         if set(left.keys()) != set(right.keys()):
             return False, diff
         # Normalise the actions by adding a SET_FIELD action to the beginning
@@ -204,7 +206,7 @@ def check_equal_match_redundancy(a, b):
         for k in left.keys():
             newleft = set_fields + left[k]
             newright = set_fields + right[k]
-            if newleft._per_output_actions() != newright._per_output_actions():
+            if newleft.per_output_actions() != newright.per_output_actions():
                 return False, diff
     return True, diff
 

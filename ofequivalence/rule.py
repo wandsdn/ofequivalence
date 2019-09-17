@@ -119,17 +119,19 @@ class Rule(object):
     instructions = None
     table = None
     ttp_link = None
-    path = None  # Store the original path
+    path = ()  # Store the original path, i.e the originally merged rules
 
     def __init__(self, dup=None, priority=None, cookie=None, match=None,
-                 instructions=None, table=None, ttp_link=None):
+                 instructions=None, table=None, ttp_link=None, path=None):
         object.__init__(self)
-        if dup:
+        if dup is not None:
             self.priority = dup.priority
             self.cookie = dup.cookie
             self.match = Match(dup.match)
             self.instructions = Instructions(dup.instructions)
             self.table = dup.table
+            self.ttp_link = dup.ttp_link
+            self.path = dup.path
         else:
             self.instructions = Instructions()
             self.match = Match()
@@ -144,7 +146,9 @@ class Rule(object):
         if table is not None:
             self.table = table
         if ttp_link is not None:
-            self.ttp_link = None
+            self.ttp_link = ttp_link
+        if path is not None:
+            self.path = path
 
     def get_goto_set_fields(self):
         """ Returns the fields with their values set by apply_actions
@@ -427,24 +431,26 @@ class ActionList(object):
     A standard format used to store an action list.
     Per spec this is a list executed in the provided order.
     """
-    hash_ = None
     ttp_link = None
-    per_output_actions = None
     orig_order = None  # We keep the original so the removal is correct
     action_levels = None  # A list of lists ordered by dependency and sorted
                           # at each dependency level
     binding = ()
+    _hash = None
+    _per_output_actions = None
+    _per_output_actions_pt = None
 
     def __init__(self, dup=None):
         object.__init__(self)
-        if dup:
+        if dup is not None:
             if isinstance(dup, ActionList):
                 self.action_levels = [x[:] for x in dup.action_levels]
                 self.orig_order = dup.orig_order[:]
-                self.per_output_actions = dup.per_output_actions
                 self.ttp_link = dup.ttp_link
-                self.hash_ = dup.hash_
-                self.binding = tuple(dup.binding)
+                self.binding = dup.binding
+                self._per_output_actions = dup._per_output_actions
+                self._per_output_actions_pt = dup._per_output_actions_pt
+                self._hash = dup._hash
             else:
                 self.action_levels = []
                 self.orig_order = []
@@ -455,8 +461,9 @@ class ActionList(object):
             self.orig_order = []
 
     def invalidate_cache(self):
-        self.per_output_actions = None
-        self.hash_ = None
+        self._hash = None
+        self._per_output_actions = None
+        self._per_output_actions_pt = None
 
     def _append(self, i):
         """ Append to the ordered structure """
@@ -475,10 +482,10 @@ class ActionList(object):
         """
         Append to the end of the list a new action of type_ with a given value
         """
+        self.invalidate_cache()
         i = (type_, value)
         self._append(i)
         self.orig_order.append(i)
-        self.invalidate_cache()
 
     def __len__(self):
         return len(self.orig_order)
@@ -532,9 +539,9 @@ class ActionList(object):
 
     def remove(self, x):
         """ Remove an item """
+        self.invalidate_cache()
         offset = 0
         self.orig_order.remove(x)
-        self.invalidate_cache()
         for l in range(len(self.action_levels)):
             level = self.action_levels[l]
             if x in level:
@@ -556,9 +563,9 @@ class ActionList(object):
 
             This is matches with the behaviour of __eq__.
         """
-        if self.hash_ is None:
-            self.hash_ = hash(tuple(self))
-        return self.hash_
+        if self._hash is None:
+            self._hash = hash(tuple(self))
+        return self._hash
 
     def replace(self, new):
         """ Replace all items with a new iterable ActionList or list """
@@ -585,6 +592,7 @@ class ActionList(object):
 
         Assumes no OUTPUT actions are in the path
 
+        return: self, redundancies are removed in-place
         """
         if self.ttp_link:
             OF = self.ttp_link.ttp.OF
@@ -657,29 +665,27 @@ class ActionList(object):
             del new_actions[i]
         self.replace(new_actions)
 
-    def _per_output_actions(self, pass_through=False):
-        """
-            pass_through: Default False. If True the key 'pass' mapped
-                          to the actions passed through to the next rule.
-            return: A port to tuple mapping, suitable for equivalence check
-        """
-        if self.per_output_actions is not None:
-            if not pass_through:
-                cpy = self.per_output_actions.copy()
-                del cpy["pass"]
-                return cpy
-            return self.per_output_actions
-        actions = self.__per_output_actions()
-        for value in actions.values():
-            value._remove_redundant()
-        self.per_output_actions = {k: tuple(v) for k, v in actions.items()}
-        if not pass_through:
-            cpy = self.per_output_actions.copy()
-            del cpy["pass"]
-            return cpy
-        return self.per_output_actions
+        return self
 
-    def __per_output_actions(self):
+    def per_output_actions(self, pass_through=False):
+        """
+            pass_through: Default False. If True the key 'pass' is mapped
+                          to the actions applied to packets passed through
+                          to the next rule, i.e. the goto modifications.
+            return: A frozenset() of tuples, (port, (actions, ...)),
+                    hashable and suitable for equivalence checking
+        """
+        if self._per_output_actions is None:
+            actions = self._per_output_actions_list()
+            actions = {k: tuple(v._remove_redundant()) for k, v in actions.items()}
+            self._per_output_actions_pt = frozenset(actions.items())
+            del actions["pass"]
+            self._per_output_actions = frozenset(actions.items())
+        if pass_through:
+            return self._per_output_actions_pt
+        return self._per_output_actions
+
+    def _per_output_actions_list(self):
         """ return: A port to ActionList mapping of the actions applied,
                      may still include redundancies. Includes the port
                      'pass' which represents to traffic passing through the
@@ -696,7 +702,7 @@ class ActionList(object):
             elif action[0] == 'GROUP':
                 group_res = {}
                 for bucket in action[1].buckets:
-                    group_res.update(bucket.__per_output_actions())
+                    group_res.update(bucket._per_output_actions_list())
                 for k, v in viewitems(group_res):
                     res[k] = current_state + v
             else:
@@ -709,7 +715,7 @@ class ActionList(object):
             other: The other part to check
             return: True if equivalent, otherwise False
         """
-        return self._per_output_actions() == other._per_output_actions()
+        return self.per_output_actions() == other.per_output_actions()
 
     def __eq__(self, other):
         """ A check if the actions performed are the same.
@@ -801,8 +807,8 @@ class ActionList(object):
                 new_actions.remove(r)
 
             cpy = self.__class__(dup=new_actions+list(add))
-            self.ttp_link = self.ttp_link
-            self.binding = self.binding
+            cpy.ttp_link = self.ttp_link
+            cpy.binding = self.binding
             return cpy
 
         cpy = self.__class__(dup=self)
@@ -822,6 +828,7 @@ class ActionSet(ActionList):
         """
         Append to the end of the list a new action of type_ with a given value
         """
+        self.invalidate_cache()
         rem = None
         for x in self:
             if type_ == x[0]:
@@ -884,14 +891,15 @@ class Instructions(object):
 
     def __init__(self, dup=None):
         object.__init__(self)
-        if dup:
+        if dup is not None:
             self.goto_table = dup.goto_table
             self.apply_actions = ActionList(dup.apply_actions)
             self.write_actions = ActionSet(dup.write_actions)
             self.write_metadata = dup.write_metadata
             self.meter = dup.meter
             self.clear_actions = dup.clear_actions
-            self.binding = tuple(dup.binding)
+            self.binding = dup.binding
+            self.ttp_link = dup.ttp_link
         else:
             self.apply_actions = ActionList()
             self.write_actions = ActionSet()
@@ -960,10 +968,8 @@ class Instructions(object):
 
             return: A hashable tuple, do not assume anything about the contents
         """
-        apply_inst = self.apply_actions._per_output_actions(pass_through=True)
-        write_inst = self.write_actions._per_output_actions(pass_through=True)
-        apply_inst = frozenset(apply_inst.items())
-        write_inst = frozenset(write_inst.items())
+        apply_inst = self.apply_actions.per_output_actions(pass_through=True)
+        write_inst = self.write_actions.per_output_actions(pass_through=True)
 
         return (self.clear_actions, self.goto_table, self.meter,
                 self.write_metadata, apply_inst, write_inst)
