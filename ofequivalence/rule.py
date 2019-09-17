@@ -180,7 +180,7 @@ class Rule(object):
         # are removed
         rewritten = Match()
         if self.ttp_link:
-            OF = self.ttp_link.OF
+            OF = self.ttp_link.ttp.OF
         else:
             OF = G_OF
 
@@ -371,7 +371,7 @@ class Rule(object):
                     del second_match['METADATA']
 
         if self.ttp_link:
-            OF = self.ttp_link.OF
+            OF = self.ttp_link.ttp.OF
         else:
             OF = G_OF
         # Demote/Promote the second match the packet entering first
@@ -587,7 +587,7 @@ class ActionList(object):
 
         """
         if self.ttp_link:
-            OF = self.ttp_link.OF
+            OF = self.ttp_link.ttp.OF
         else:
             OF = G_OF
 
@@ -741,8 +741,8 @@ class ActionList(object):
         type1 = self.to_type(item1)
         type2 = self.to_type(item2)
         if self.ttp_link:
-            deps1 = self.ttp_link.OF.oxm_dep_map[type1]
-            deps2 = self.ttp_link.OF.oxm_dep_map[type2]
+            deps1 = self.ttp_link.ttp.OF.action_dependancies[type1]
+            deps2 = self.ttp_link.ttp.OF.action_dependancies[type2]
         else:
             deps1 = G_OF.action_dependancies[type1]
             deps2 = G_OF.action_dependancies[type2]
@@ -858,7 +858,7 @@ class ActionSet(ActionList):
             self.action_levels = []
             if self.ttp_link:
                 self.orig_order.sort(key=lambda x:
-                    self.ttp_link.OF.action_set_order.index(x[0]))
+                    self.ttp_link.ttp.OF.action_set_order.index(x[0]))
             else:
                 self.orig_order.sort(key=lambda x:
                     G_OF.action_set_order.index(x[0]))
@@ -1153,8 +1153,8 @@ class Match(dict):
         assert isinstance(name, string_types)
         self._wildcard = None
         if self.ttp_link:
-            field_id = self.ttp_link.OF.oxm_name_to_id(name)
-            l = self.ttp_link.OF.oxm_fields[name][self.ttp_link.OF.INDEX_BITS]
+            field_id = self.ttp_link.ttp.OF.oxm_name_to_id(name)
+            l = self.ttp_link.ttp.OF.oxm_fields[name][self.ttp_link.ttp.OF.INDEX_BITS]
         else:
             field_id = G_OF.oxm_name_to_id(name)
             l = G_OF.oxm_fields[name][G_OF.INDEX_BITS]
