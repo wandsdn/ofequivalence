@@ -233,7 +233,7 @@ class TestMergingRules(unittest.TestCase):
         self.assertRaises(MergeException, lambda: d1+(d2+d3)+d4)
         self.assertRaises(MergeException, lambda: d1+(d2+(d3+d4)))
 
-        # Check original metadata match + set's intersection is calcuated
+        # Check original metadata match + set's intersection is calculated
         # correctly
         rule8 = Rule(priority=0, match=Match([("METADATA", 0x1, 0x1)]))
         rule8.instructions.write_metadata = (0x0, 0x2)

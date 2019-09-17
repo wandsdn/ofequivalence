@@ -80,7 +80,7 @@ def build_table_deps(ruleset, use_bdd=True):
     """
     Based on CacheFlow (2016), algorithm 1
     ruleset: Takes a list of Rule objects
-    use_bdd: Default True, use a BDD for calculations, alternativly use headerspace
+    use_bdd: Default True, use a BDD for calculations, alternatively use headerspace
 
     return: A mapping from edges to packet-space on that path.
             An edge is a tuple (child, parent) and add_parents selects the
@@ -263,7 +263,7 @@ def build_ruleset_deps(stats, build_table=build_table_deps_incremental,
         input_to_table = defaultdict(set)
         reaches = {}
 
-        # All goto's out of table 1
+        # All goto's out of table 0
         for stat in ruleset_tables[0]:
             if stat.instructions.goto_table is not None:
                 input_to_table[stat.instructions.goto_table].add(stat)
@@ -272,19 +272,14 @@ def build_ruleset_deps(stats, build_table=build_table_deps_incremental,
         for table in tables:
             # Find the deps within a table
             table_reaches = build_table(ruleset_tables[table], use_bdd=use_bdd)
-            # Use every goto with every rule in the table
-            for stat in input_to_table[table]:
-                if use_bdd:
-                    add_parents_bdd(stat, ruleset_tables[table], reaches)
-                else:
-                    add_parents_hs(stat, ruleset_tables[table], reaches)
-                for nstat in (x[1] for x in reaches if x[1].table == table):
-                    if nstat.instructions.goto_table is not None:
-                        input_to_table[nstat.instructions.goto_table].add(nstat)
             reaches.update(table_reaches)
-            input_to_table[table] = set()
+        for rule in stats:
+            if rule.instructions.goto_table is None:
+                continue
+            assert rule.instructions.goto_table > rule.table
+            if use_bdd:
+                add_parents_bdd(rule, ruleset_tables[rule.instructions.goto_table], reaches)
+            else:
+                add_parents_hs(rule, ruleset_tables[rule.instructions.goto_table], reaches)
 
-        for x in input_to_table:
-            # Something went backwards
-            assert len(input_to_table[x]) == 0
     return list(reaches)
