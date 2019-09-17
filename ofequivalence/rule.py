@@ -308,7 +308,7 @@ class Rule(object):
 
     def copy(self):
         """
-        Copies the Flow
+        Copies the Rule
         """
         return self.__class__(dup=self)
 
@@ -1076,11 +1076,13 @@ class Match(dict):
             Provide value as a long, mask as a long or None(exact match).
             The field_name should be the string 'IN_PORT' etc.
         """
-        if dup:
+        if dup is not None:
             if isinstance(dup, Match):
                 dict.__init__(self, dup)
                 self.required_mask = dup.required_mask
-                self.binding = tuple(dup.binding)
+                self.binding = dup.binding
+                self._wildcard = dup._wildcard
+                self.ttp_link = dup.ttp_link
             else:
                 dict.__init__(self)
                 for x in dup:
@@ -1193,7 +1195,7 @@ class Match(dict):
         dict.__delitem__(self, value)
 
     def __hash__(self):
-        return hash(self.required_mask)
+        return hash(self.get_wildcard())
 
     def __eq__(self, other):
         # Perf! Consider using wildcard??

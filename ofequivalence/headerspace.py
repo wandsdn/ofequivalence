@@ -457,6 +457,7 @@ def flow_wildcard_to_flowmatches(wc, class_):
     matches = class_()
     for match in fields:
         matches.append(*match)
+    matches._wildcard = wc
     return matches
 
 
