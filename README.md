@@ -47,6 +47,13 @@ ryu-mananger --ofp-tcp-listen-port <port> --ofp-listen-host <host> ./CollectStat
 In some cases you might need to also specify ryu's --log-config-file.
 
 ### Installing
+
+First install the requirements for [gmpy2](https://gmpy2.readthedocs.io/en/latest/).
+For Debian based distributions run:
+```
+apt install libgmp-dev libmpfr-dev libmpc-dev
+```
+
 To install this library we recommend using pip
 
 In the root directory (where this README is located) run:
@@ -63,6 +70,15 @@ pip install --user ./
 Note: It is expected that the normalise headerspace tests will fail, as this
 implementation is incomplete. Hence, the normalise bdd implementation
 should be used in practice.
+
+#### Dependencies
+
+This library uses the CUDD 3.0.0 BDD package, available from:
+https://github.com/ivmai/cudd
+
+The install script downloads and builds the CUDD library automatically.
+
+For python dependencies see requirements.txt
 
 ### Running tests
 
