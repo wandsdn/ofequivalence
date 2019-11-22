@@ -15,9 +15,22 @@
 # limitations under the License.
 
 import unittest
-from unittest import expectedFailure
+from functools import wraps
 from ofequivalence import normaliseheaderspace
 from .base_normalise import BaseNormalise
+
+
+def expectedFailure(fn):
+    """ unittest.expectedFailure does not copy the function
+
+        So it directly modifies the base class which can cause troubles
+        depending on the order tests run.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        return fn(*args, **kwargs)
+    return unittest.expectedFailure(wrapper)
+
 
 class TestNormaliseHeaderSpace(BaseNormalise, unittest.TestCase):
     def setUp(self):
