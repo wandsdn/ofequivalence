@@ -95,3 +95,24 @@ def open_compressed(f_name, mode="rb"):
     else:
         f_handle = open(f_name, mode)
     return f_handle
+
+
+class AlphaInt(int):
+    """ A string formatting class
+
+        Provides the 'z' and 'Z' options to convert
+        a number to a letter, a-z (or 'A-Z').
+        Numbers greater than 26 are represented with multiple letters, 'aa' ...
+    """
+
+    def __format__(self, fmt_flag):
+        if fmt_flag in ("z", "Z"):
+            ret = ""
+            value = self
+            while value >= 0:
+                ret = chr(ord('a') + (value % 26)) + ret
+                value = (value // 26) - 1
+            if fmt_flag == "Z":
+                return ret.upper()
+            return ret
+        return int.__format__(self, fmt_flag)

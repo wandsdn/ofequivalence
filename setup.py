@@ -74,13 +74,15 @@ setup(
         "lru-dict",
         "tqdm",
         "gmpy2",
-        "six"
+        "six",
+        "networkx"
         ],
     ext_modules=[_cbdd, _cudd, _utils],
     entry_points={
         "console_scripts": [
             "check_equivalence = ofequivalence.check_equivalence:main",
-            "compress_ruleset = ofequivalence.compress_ruleset:main"
+            "compress_ruleset = ofequivalence.compress_ruleset:main",
+            "graph_ruleset_deps = ofequivalence.graph_ruleset_deps:main"
             ]
         }
     )
