@@ -41,7 +41,7 @@ A pickled ruleset can be collected using the included script, scripts/collect_st
 
 It is run as follows:
 ```
-ryu-mananger --ofp-tcp-listen-port <port> --ofp-listen-host <host> ./CollectState.py
+ryu-mananger --ofp-tcp-listen-port <port> --ofp-listen-host <host> ./collect_state.py
 ```
 
 In some cases you might need to also specify ryu's --log-config-file.

@@ -1,7 +1,13 @@
 *.py[cod]
 *.swp
 *.so
-cudd-3.0.0.tar.gz
-cudd-cudd-3.0.0/
+__pycache__/
+
+build/
+*.egg-info/
+.eggs/
 .coverage
 htmlcov/
+
+cudd-3.0.0.tar.gz
+cudd-cudd-3.0.0/

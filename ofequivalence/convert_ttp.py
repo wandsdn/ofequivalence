@@ -19,7 +19,7 @@ representation.
 
 from __future__ import print_function
 from six import integer_types, string_types
-from TTP.TTP import TTPTable
+from ttp_tools.TTP import TTPTable
 
 from .rule import Rule, Match, Instructions, ActionSet, ActionList
 
