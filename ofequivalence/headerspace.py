@@ -39,16 +39,12 @@
 # limitations under the License.
 
 import math
-import resource
 import six
 from six import viewitems
 from .openflow_desc import OpenFlow1_3_5
+from .limits import automatically_limit_memory
 
-
-MB_LIMIT = 1500
-orig_limits = resource.getrlimit(resource.RLIMIT_AS)
-# This takes bytes
-resource.setrlimit(resource.RLIMIT_AS, ((MB_LIMIT*(0x100000), orig_limits[1])))
+automatically_limit_memory()
 
 G_OF = OpenFlow1_3_5()
 

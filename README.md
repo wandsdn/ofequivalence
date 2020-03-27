@@ -34,6 +34,24 @@ optional arguments:
   -v, --verbose         Print additional stats from CUDD
 ```
 
+#### Memory Limit
+
+The internal representations for a set of packets whether using  BDD's or
+Header Space can grow large, often quite unexpectedly.
+
+To reduce the risk of swapping and creating an out-of-memory situation,
+ofequivalence applies a virtual memory limit to itself, unless
+it finds an existing limit already. This limit is set to a minimum of
+512MB up to 80% of free memory at load time.
+
+To override the default limit use ulimit -Sv, for example
+```
+ulimit -Sv 1048576  # Set the soft virtual memory limit to 1GB
+check_equivalence -d ruleset_a.pickle ruleset_b.pickle
+```
+
+For more see the implementation in [ofequivalence/limits.py](ofequivalence/limits.py)
+
 ### Pickled rulesets
 
 A pickled ruleset can be collected using the included script, scripts/collect_state.py.
