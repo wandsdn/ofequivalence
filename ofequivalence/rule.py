@@ -1031,7 +1031,7 @@ class Group(object):
     def __init__(self, dup=None):
         if dup is not None:
             self.type_ = dup.type_
-            self.numer = dup.number
+            self.number = dup.number
             self.buckets = dup.buckets
             self.ttp_link = dup.ttp_link
             self._hash = dup._hash
