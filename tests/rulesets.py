@@ -130,12 +130,18 @@ REWRITE_RULESET = [
 
 for x in COVISOR_RULESET:
     x.table = 0
+    x.cookie = 0
 for x in REANNZ_RULESET:
     x.table = 0
+    x.cookie = 0
 for x in REANNZ_OVERLAP:
     x.table = 0
+    x.cookie = 0
 for x in REANNZ_OVERLAP2:
     x.table = 0
+    x.cookie = 0
+for x in REWRITE_RULESET:
+    x.cookie = 0
 
 # (RuleA, RuleB, indirect?)
 
