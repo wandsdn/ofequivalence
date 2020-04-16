@@ -1160,10 +1160,10 @@ class Match(dict):
         self._wildcard = None
         if self.ttp_link:
             field_id = self.ttp_link.ttp.OF.oxm_name_to_id(name)
-            l = self.ttp_link.ttp.OF.oxm_fields[name][self.ttp_link.ttp.OF.INDEX_BITS]
+            l = self.ttp_link.ttp.OF.oxm_fields[name].bits
         else:
             field_id = G_OF.oxm_name_to_id(name)
-            l = G_OF.oxm_fields[name][G_OF.INDEX_BITS]
+            l = G_OF.oxm_fields[name].bits
 
         if l and mask:
             max_mask = (2**l)-1

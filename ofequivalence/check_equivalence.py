@@ -53,7 +53,7 @@ def reverse_fields(ruleset):
         for field, (value, mask, _) in rule.match.iteritems():
             if field == "VLAN_VID":
                 continue
-            bits = OF.oxm_fields[field][OF.INDEX_BITS]
+            bits = OF.oxm_fields[field].bits
             new_value = int(bin(value)[2:].zfill(bits)[::-1], 2)
             assert new_value & ((2**bits)-1) == new_value
             new_mask = mask
@@ -64,7 +64,7 @@ def reverse_fields(ruleset):
         new_actions = rule.instructions.apply_actions.__class__()
         for action in rule.instructions.apply_actions:
             if action[0] == "SET_FIELD" and action[1][0] != "VLAN_VID":
-                bits = OF.oxm_fields[action[1][0]][OF.INDEX_BITS]
+                bits = OF.oxm_fields[action[1][0]].bits
                 reverse = int(bin(action[1][1])[2:].zfill(bits)[::-1], 2)
                 assert reverse & ((2**bits)-1) == reverse
                 new_actions.append("SET_FIELD", (action[1][0], reverse))

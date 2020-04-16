@@ -21,7 +21,10 @@ The OpenFlow1_3_5 class provides a 1.3.5 OpenFlow description.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import difflib
+import copy
+
 from six import string_types
 from six.moves import reduce
 
@@ -58,14 +61,6 @@ class OpenFlowDescription(object):
     # A dict of pop to tunnel info, i.e. mapping into tunnels
     tun_pop = None
 
-    # Indexes into oxm_fields
-    INDEX_ID = 0
-    INDEX_BITS = 1
-    INDEX_BYTES = 2
-    INDEX_MASKABLE = 3
-    INDEX_DEFAULT = 4
-    INDEX_PREREQS = 5
-
     action_set_order = None  # The order in which an action set will be applied
 
     # We say a dep exists for an operation x and y iff
@@ -92,17 +87,18 @@ class OpenFlowDescription(object):
                     stdout.
         """
         if name in self.oxm_fields:
-            return self.oxm_fields[name][self.INDEX_ID]
+            return self.oxm_fields[name].id
         else:
             maybes = difflib.get_close_matches(name, self.oxm_fields)
-            last = self.oxm_fields[self.ordered_oxm_fields[-1]][self.INDEX_ID]
-            print("Adding field " + name + " as " + str(last + 1) +
+            last_id = self.oxm_fields[self.ordered_oxm_fields[-1]].id
+            print("Adding field " + name + " as " + str(last_id + 1) +
                   "consider adding this with name and values")
             if maybes:
                 print("Is this a simple typo? Maybe you meant: " + str(maybes))
-            self.oxm_fields[name] = (last + 1, None, None, None, None, [])
+            self.oxm_fields[name] = FieldDescription(name, last_id + 1, None, None,
+                                                     None, None, [], "decimal")
             self.ordered_oxm_fields.append(name)
-            return last + 1
+            return last_id + 1
 
     def check_oxm_name(self, name, log):
         """ Check if an oxm exists
@@ -145,6 +141,33 @@ class OpenFlowDescription(object):
         assert new_len == len(x)
         return x
 
+class FieldDescription(object):
+    """ Details of a header field from the OpenFlow Spec
+
+        name: str, The field name
+        id: int, The OXM ID in OpenFlow
+        bits: int, The number of valid bits in this header (the lowest X bits)
+        bytes: int, The number of bytes (sent in the OpenFlow OXM message)
+        maskable: bool, True if the field can be masked
+        default: The default value of the field, e.g. the default value of a
+                 pipeline only field like metadata when it is created.
+        prereqs: List of (field, value) tuples, the required prerequisites
+                 to match on this field
+        format: String, The human-readable format to display this field in
+                Choices: decimal, hex, ipv4, ipv6, ethernet
+    """
+    __slots__ = ("name", "id", "bits", "bytes", "maskable", "default", "prereqs",
+                 "format")
+
+    def __init__(self, name, _id, bits, _bytes, maskable, default, prereqs, _format):
+        self.name = name
+        self.id = _id
+        self.bits = bits
+        self.bytes = _bytes
+        self.maskable = maskable
+        self.default = default
+        self.prereqs = prereqs
+        self.format = _format
 
 class OpenFlow1_3_5(OpenFlowDescription):
 
@@ -166,49 +189,51 @@ class OpenFlow1_3_5(OpenFlowDescription):
         icmpv6 = [("IP_PROTO", 58)]
         icmpv6_nd = [("ICMPV6_TYPE", 135), ("ICMPV6_TYPE", 136)]
 
-        self.oxm_fields = {
-            # (ident, bits, bytes, maskable, default, pre-requisites)
-            "IN_PORT": (0, 32, 4, False, None, []),
-            "IN_PHY_PORT": (1, 32, 4, False, None, [("IN_PORT")]),
-            "METADATA": (2, 64, 8, True, 0, None, []),
-            "ETH_DST": (3, 48, 6, True, None, []),
-            "ETH_SRC": (4, 48, 6, True, None, []),
-            "ETH_TYPE": (5, 16, 2, False, None, []),
-            "VLAN_VID": (6, 13, 2, True, None, []),
-            "VLAN_PCP": (7, 3, 1, False, None, ["not vlan"]),
-            "IP_DSCP": (8, 6, 1, False, None, ipv4_or_6),
-            "IP_ECN": (9, 2, 1, False, None, ipv4_or_6),
-            "IP_PROTO": (10, 8, 1, False, None, ipv4_or_6),
-            "IPV4_SRC": (11, 32, 4, True, None, ipv4),
-            "IPV4_DST": (12, 32, 4, True, None, ipv4),
-            "TCP_SRC": (13, 16, 2, False, None, tcp),
-            "TCP_DST": (14, 16, 2, False, None, tcp),
-            "UDP_SRC": (15, 16, 2, False, None, udp),
-            "UDP_DST": (16, 16, 2, False, None, udp),
-            "SCTP_SRC": (17, 16, 2, False, None, sctp),
-            "SCTP_DST": (18, 16, 2, False, None, sctp),
-            "ICMPV4_TYPE": (19, 8, 1, False, None, icmp),
-            "ICMPV4_CODE": (20, 8, 1, False, None, icmp),
-            "ARP_OP": (21, 16, 2, True, None, arp),
-            "ARP_SPA": (22, 32, 4, True, None, arp),
-            "ARP_TPA": (23, 32, 4, True, None, arp),
-            "ARP_SHA": (24, 48, 6, True, None, arp),
-            "ARP_THA": (25, 48, 6, True, None, arp),
-            "IPV6_SRC": (26, 128, 16, True, None, ipv6),
-            "IPV6_DST": (27, 128, 16, True, None, ipv6),
-            "IPV6_FLABEL": (28, 20, 4, True, None, ipv6),
-            "ICMPV6_TYPE": (29, 8, 1, False, None, icmpv6),
-            "ICMPV6_CODE": (30, 8, 1, False, None, icmpv6),
-            "IPV6_ND_TARGET": (31, 128, 16, False, None, icmpv6_nd),
-            "IPV6_ND_SLL": (32, 48, 6, False, None, icmpv6_nd),
-            "IPV6_ND_TLL": (33, 48, 6, False, None, icmpv6_nd),
-            "MPLS_LABEL": (34, 20, 4, False, None, mpls),
-            "MPLS_TC": (35, 3, 1, False, None, mpls),
-            "MPLS_BOS": (36, 1, 1, False, None, mpls),
-            "PBB_ISID": (37, 24, 3, True, None, pbb),
-            "TUNNEL_ID": (38, 64, 8, True, None, []),
-            "IPV6_EXTHDR": (39, 9, 2, True, None, ipv6),
-        }
+        FD = FieldDescription
+        self.oxm_fields = [
+            # (name, id, bits, bytes, maskable, default, pre-requisites, format)
+            FD("IN_PORT", 0, 32, 4, False, None, [], "decimal"),
+            FD("IN_PHY_PORT", 1, 32, 4, False, None, [("IN_PORT")], "decimal"),
+            FD("METADATA", 2, 64, 8, True, 0, [], "hex"),
+            FD("ETH_DST", 3, 48, 6, True, None, [], "ethernet"),
+            FD("ETH_SRC", 4, 48, 6, True, None, [], "ethernet"),
+            FD("ETH_TYPE", 5, 16, 2, False, None, [], "hex"),
+            FD("VLAN_VID", 6, 13, 2, True, None, [], "decimal"),
+            FD("VLAN_PCP", 7, 3, 1, False, None, [("VLAN_VID")], "decimal"),
+            FD("IP_DSCP", 8, 6, 1, False, None, ipv4_or_6, "decimal"),
+            FD("IP_ECN", 9, 2, 1, False, None, ipv4_or_6, "decimal"),
+            FD("IP_PROTO", 10, 8, 1, False, None, ipv4_or_6, "decimal"),
+            FD("IPV4_SRC", 11, 32, 4, True, None, ipv4, "ipv4"),
+            FD("IPV4_DST", 12, 32, 4, True, None, ipv4, "ipv4"),
+            FD("TCP_SRC", 13, 16, 2, False, None, tcp, "decimal"),
+            FD("TCP_DST", 14, 16, 2, False, None, tcp, "decimal"),
+            FD("UDP_SRC", 15, 16, 2, False, None, udp, "decimal"),
+            FD("UDP_DST", 16, 16, 2, False, None, udp, "decimal"),
+            FD("SCTP_SRC", 17, 16, 2, False, None, sctp, "decimal"),
+            FD("SCTP_DST", 18, 16, 2, False, None, sctp, "decimal"),
+            FD("ICMPV4_TYPE", 19, 8, 1, False, None, icmp, "decimal"),
+            FD("ICMPV4_CODE", 20, 8, 1, False, None, icmp, "decimal"),
+            FD("ARP_OP", 21, 16, 2, True, None, arp, "decimal"),
+            FD("ARP_SPA", 22, 32, 4, True, None, arp, "ipv4"),
+            FD("ARP_TPA", 23, 32, 4, True, None, arp, "ipv4"),
+            FD("ARP_SHA", 24, 48, 6, True, None, arp, "ethernet"),
+            FD("ARP_THA", 25, 48, 6, True, None, arp, "ethernet"),
+            FD("IPV6_SRC", 26, 128, 16, True, None, ipv6, "ipv6"),
+            FD("IPV6_DST", 27, 128, 16, True, None, ipv6, "ipv6"),
+            FD("IPV6_FLABEL", 28, 20, 4, True, None, ipv6, "hex"),
+            FD("ICMPV6_TYPE", 29, 8, 1, False, None, icmpv6, "decimal"),
+            FD("ICMPV6_CODE", 30, 8, 1, False, None, icmpv6, "decimal"),
+            FD("IPV6_ND_TARGET", 31, 128, 16, False, None, icmpv6_nd, "ipv6"),
+            FD("IPV6_ND_SLL", 32, 48, 6, False, None, icmpv6_nd, "ethernet"),
+            FD("IPV6_ND_TLL", 33, 48, 6, False, None, icmpv6_nd, "ethernet"),
+            FD("MPLS_LABEL", 34, 20, 4, False, None, mpls, "decimal"),
+            FD("MPLS_TC", 35, 3, 1, False, None, mpls, "decimal"),
+            FD("MPLS_BOS", 36, 1, 1, False, None, mpls, "decimal"),
+            FD("PBB_ISID", 37, 24, 3, True, None, pbb, "decimal"),
+            FD("TUNNEL_ID", 38, 64, 8, True, None, [], "hex"),
+            FD("IPV6_EXTHDR", 39, 9, 2, True, None, ipv6, "decimal"),
+        ]
+        self.oxm_fields = {field.name: field for field in self.oxm_fields}
 
         self.tunnels = [
             {
@@ -237,13 +262,14 @@ class OpenFlow1_3_5(OpenFlowDescription):
             for field in tunnel['fields']:
                 orig = self.oxm_fields[field]
                 for i in range(1, HEADER_DEPTH+1):
-                    self.oxm_fields[field + str(i)] = (
-                        (len(self.oxm_fields),) + orig[1:])
+                    new_field = copy.copy(orig)
+                    new_field.name = field + str(i)
+                    new_field.id = len(self.oxm_fields)
+                    self.oxm_fields[new_field.name] = new_field
 
         # A stable list
-        self.ordered_oxm_fields = [x for x in sorted(self.oxm_fields,
-                                   key=lambda k: self.oxm_fields[k]
-                                   [self.INDEX_ID])]
+        self.ordered_oxm_fields = [x.name for x in sorted(self.oxm_fields.values(),
+                                                          key=lambda k: k.id)]
 
         """ The order in which an action set (i.e. write-actions and groups) is applied
         From the spec:
@@ -274,8 +300,8 @@ class OpenFlow1_3_5(OpenFlowDescription):
         def S(x):
             return ("SET_FIELD", x)
 
-        # Basically anything list can not be reordered
-        # The general strat is to move all items as early as
+        # Basically anything in an action list that cannot be reordered
+        # The general strategy is to move all items as early as
         # possible and then sort
         self.action_dependancies = {
             # We say a dep exists for an operation x and y iff
@@ -303,7 +329,7 @@ class OpenFlow1_3_5(OpenFlowDescription):
             # in release notes tags are put in there outermost valid position
             # Then goes on to say that VLAN's are placed straight after the
             # ethernet header, but MPLS's are placed directly before the IP
-            # and any any other MPLS tag.
+            # and any other MPLS tag.
             # Is this because you are not allowed to put a MPLS before a VLAN
             # or a typo? I'll assume it is right for now!
             # Note a PBB also gets placed directly after the ethernet.

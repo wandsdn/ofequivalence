@@ -50,7 +50,7 @@ G_OF = OpenFlow1_3_5()
 
 fields_bit_width = 0
 for field, desc in viewitems(G_OF.oxm_fields):
-    fields_bit_width += desc[G_OF.INDEX_BITS]
+    fields_bit_width += desc.bits
 
 bytes_needed = int(math.ceil(fields_bit_width/8.0))
 extra_padding = bytes_needed*8 - fields_bit_width
@@ -267,8 +267,7 @@ def build_field_offset():
     offset = extra_padding
     for field in reversed(G_OF.ordered_oxm_fields):
         WC_FIELD_OFFSET[field] = offset
-        desc = G_OF.oxm_fields[field]
-        offset += desc[G_OF.INDEX_BITS]
+        offset += G_OF.oxm_fields[field].bits
 build_field_offset()
 
 
@@ -279,7 +278,7 @@ def flow_matches_to_wildcard(matches):
             desc = G_OF.oxm_fields[field]
         except:
             continue
-        bit_width = desc[G_OF.INDEX_BITS]*2
+        bit_width = desc.bits*2
         value, mask, _ = value
         wmask = (1 << (bit_width)) - 1
         if mask is None:
@@ -300,8 +299,7 @@ def flow_wildcard_to_string(wc):
     bits = 0
     # We have to do everything backwards!!
     for field in reversed(G_OF.ordered_oxm_fields):
-        desc = G_OF.oxm_fields[field]
-        length = desc[G_OF.INDEX_BITS]
+        length = G_OF.oxm_fields[field].bits
         mask = (1 << (length*2)) - 1
         bits += length
         value = mask & full_tint
@@ -376,7 +374,7 @@ def _fill_bit2field():
         bit2field.append('NONE')
         bit2field.append('NONE')
     for field in reversed(G_OF.ordered_oxm_fields):
-        for x in range(G_OF.oxm_fields[field][G_OF.INDEX_BITS]):
+        for x in range(G_OF.oxm_fields[field].bits):
             bit2field.append(field)
             bit2field.append(field)
 
@@ -393,8 +391,7 @@ if "bit_scan0" in dir(wc_class):
         offset = wc.bit_scan0()
         while offset < bytes_needed*16:
             field = bit2field[offset]
-            desc = G_OF.oxm_fields[field]
-            length = desc[G_OF.INDEX_BITS]
+            length = G_OF.oxm_fields[field].bits
             mask = ((1 << (length*2)) - 1)
             value = (wc >> (WC_FIELD_OFFSET[field]*2)) & mask
             assert value != mask
@@ -425,8 +422,7 @@ else:
         offset = bit_scan0(wc, 0)
         while offset < bytes_needed*16:
             field = bit2field[offset]
-            desc = G_OF.oxm_fields[field]
-            length = desc[G_OF.INDEX_BITS]
+            length = G_OF.oxm_fields[field].bits
             mask = ((1 << (length*2)) - 1)
             value = (wc >> (WC_FIELD_OFFSET[field]*2)) & mask
             assert value != mask
@@ -471,8 +467,7 @@ def flow_wildcard_read_field(wc, name):
         assert mask & padding == mask
 
     for field in reversed(G_OF.ordered_oxm_fields):
-        desc = G_OF.oxm_fields[field]
-        length = desc[G_OF.INDEX_BITS]
+        length = G_OF.oxm_fields[field].bits
         if field == name:
             width = length
             break
