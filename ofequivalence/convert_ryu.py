@@ -36,54 +36,9 @@ from ryu.ofproto.ofproto_parser import ofp_msg_from_jsondict
 
 from .rule import Rule, Match, Instructions, ActionSet, ActionList, Group
 from .utils import as_file_handle
+from .format_utils import normalise_bytes
 
 DP = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
-
-
-def _normalise_bytes(value):
-    """ Converts bytes or network strings to an int """
-    if value is None:
-        return None
-    if not isinstance(value, six.integer_types):
-        parts = None
-        if six.PY3 and isinstance(value, str):
-            value = bytes(value, 'latin')
-        # Check for IPv6 note this can match the naive MAC
-        # The smallest IPv6 is '::'
-        if (len(value.split(b':')) == 8 or
-                (len(value.split(b':')) >= 3 and value.find(b"::") != -1)):
-            v2 = value
-            while len(v2.split(b':')) < 8:
-                v2 = v2.replace(b'::', b':::', 1)
-            parts = v2.split(b':')
-            assert len(parts) == 8
-            res = 0
-            shift = 112
-            for part in parts:
-                part = b"0" if part == b"" else part
-                assert int(part, 16) <= 0xFFFF
-                res |= int(part, 16) << shift
-                shift -= 16
-            return res
-        # IPv4
-        elif len(value.split(b'.')) == 4:
-            parts = value.split(b'.')
-            assert (int(parts[0]) | int(parts[1]) |
-                    int(parts[2]) | int(parts[3])) <= 0xFF
-            return (int(parts[0]) << 24 | int(parts[1]) << 16 |
-                    int(parts[2]) << 8 | int(parts[3]))
-        # Check for mac addresses
-        elif len(value.split(b':')) == 6:
-            parts = value.split(b':')
-        elif len(value.split(b'-')) == 6:
-            parts = value.split(b'-')
-        if parts:
-            return int(b"".join(parts), 16)
-    if six.PY3 and isinstance(value, bytes):
-        return int.from_bytes(value, 'big')
-    if isinstance(value, str):
-        return int(value.encode('hex'), 16)
-    return int(value)
 
 
 # ~~~~ Functions converting from ryu to the internal rule representation ~~~~ #
@@ -100,8 +55,8 @@ def match_from_ryu(ryu_match):
     ret = Match()
     for field in ryu_match._fields2:
         oxm = ofproto_v1_3.oxm_from_user(*field)
-        value = _normalise_bytes(oxm[1])
-        mask = _normalise_bytes(oxm[2])
+        value = normalise_bytes(oxm[1])
+        mask = normalise_bytes(oxm[2])
         ret.append(field[0].upper(), value, mask)
     return ret
 
@@ -150,10 +105,10 @@ def actions_from_ryu(ryu_actions, type_):
         elif action.type == ofproto_v1_3.OFPAT_SET_FIELD:
             try:
                 ret.append('SET_FIELD', (action.key.upper(),
-                                         _normalise_bytes(action.field.value)))
+                                         normalise_bytes(action.field.value)))
             except Exception:
                 ret.append('SET_FIELD', (action.key.upper(),
-                                         _normalise_bytes(action.value)))
+                                         normalise_bytes(action.value)))
         elif action.type == ofproto_v1_3.OFPAT_PUSH_PBB:
             ret.append('PUSH_PBB', action.ethertype)
         elif action.type == ofproto_v1_3.OFPAT_POP_PBB:

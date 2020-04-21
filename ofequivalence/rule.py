@@ -25,6 +25,7 @@ from six import string_types, viewitems
 from . import headerspace
 from .headerspace import (wildcard_is_subset, wildcard_intersect)
 from .openflow_desc import OpenFlow1_3_5
+from .format_utils import FORMATTERS, format_hex
 
 # A global copy of OpenFlow
 G_OF = OpenFlow1_3_5()
@@ -296,7 +297,7 @@ class Rule(object):
                 self.match == other.match and
                 self.instructions == other.instructions and
                 self.table == other.table
-                )
+               )
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -370,7 +371,7 @@ class Rule(object):
                 new_mask = mm & ~rewritten["METADATA"][1]
                 if new_mask != 0:
                     second_match.append('METADATA', second_match['METADATA'][0] & new_mask,
-                                  new_mask)
+                                        new_mask)
                 else:
                     del second_match['METADATA']
 
@@ -1217,12 +1218,14 @@ class Match(dict):
         return not self.__eq__(other)
 
     def __str__(self):
-        ret = "{"
+        ret = []
         for key, value in viewitems(self):
-            ret += (key + "=" + hex(value[0]) +
-                    (("/" + hex(value[1])) if value[1] is not None else "") +
-                    ",")
-        return ret + "}"
+            try:
+                oxm = G_OF.oxm_fields[key]
+                ret.append(FORMATTERS[oxm.format](*value[:2]))
+            except KeyError:
+                ret.append(format_hex(*value[:2]))
+        return "{" + ", ".join(ret) + "}"
 
     def empty(self):
         return len(self) == 0

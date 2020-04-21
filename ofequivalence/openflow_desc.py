@@ -155,6 +155,7 @@ class FieldDescription(object):
                  to match on this field
         format: String, The human-readable format to display this field in
                 Choices: decimal, hex, ipv4, ipv6, ethernet
+                         - see format_utils.FORMATTERS
     """
     __slots__ = ("name", "id", "bits", "bytes", "maskable", "default", "prereqs",
                  "format")
