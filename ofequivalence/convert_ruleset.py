@@ -30,18 +30,20 @@ import six
 
 from .utils import as_file_handle
 from .convert_fib import ruleset_from_fib
+from .convert_ovs import ruleset_from_ovs, ruleset_to_ovs
 from .convert_ryu import (ruleset_to_ryu_json,
                           ruleset_to_ryu_pickle, ruleset_to_pickle,
                           ruleset_from_pickle, ruleset_from_ryu_json)
 
 # Note currently ryu on input includes both ryu_json and ryu_pickle
-INPUT_FORMATS = ("auto", "ryu_pickle", "ryu_json", "pickle", "fib")
-OUTPUT_FORMATS = ("ryu_json", "ryu_pickle", "pickle", "text")
+INPUT_FORMATS = ("auto", "ryu_pickle", "ryu_json", "pickle", "ovs", "fib")
+OUTPUT_FORMATS = ("ryu_json", "ryu_pickle", "pickle", "ovs", "text")
 
 _input_load_fn = {
     "ryu_json": ruleset_from_ryu_json,
     "pickle": ruleset_from_pickle,
     "ryu_pickle": ruleset_from_pickle,
+    "ovs": ruleset_from_ovs,
     "fib": ruleset_from_fib
     }
 
@@ -73,10 +75,13 @@ def ruleset_from_auto(source):
         f_priority.append(ruleset_from_pickle)
     if 'fib' in file_name:
         f_priority.append(ruleset_from_fib)
+    if 'ovs' in file_name:
+        f_priority.append(ruleset_from_ovs)
 
     # Add all remaining format options
     f_priority.extend(set(_input_load_fn.values()) -
-                      set(f_priority))
+                      set(f_priority + [ruleset_from_ovs]))
+    f_priority.append(ruleset_from_ovs)
 
     errors = []
     for load_fn in f_priority:
@@ -133,6 +138,8 @@ def save_ruleset(ruleset, destination, _format):
         ruleset_to_ryu_pickle(ruleset, destination)
     elif _format == "pickle":
         ruleset_to_pickle(ruleset, destination)
+    elif _format == "ovs":
+        ruleset_to_ovs(ruleset, destination)
     elif _format == "text":
         print_ruleset(ruleset, destination)
 

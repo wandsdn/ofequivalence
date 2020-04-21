@@ -113,6 +113,9 @@ class TestConvertRuleset(unittest.TestCase):
     def test_save_load_pickle(self):
         self._do_test('pickle', 'pickle')
 
+    def test_save_load_ovs(self):
+        self._do_test('ovs', 'ovs')
+
     def test_load_fib(self):
         self._test_load("tests/fib_1000.dat", 'fib')
 
