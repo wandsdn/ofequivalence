@@ -58,8 +58,7 @@ from tempfile import NamedTemporaryFile
 import networkx as nx
 from networkx.readwrite import json_graph
 
-from ofequivalence.convert_ryu import ruleset_from_ryu
-from ofequivalence.convert_fib import ruleset_from_fib
+from ofequivalence.convert_ruleset import INPUT_FORMATS, load_ruleset
 from ofequivalence.rule import Rule
 from ofequivalence.ruleset import (sort_ruleset, compress_ruleset,
                                    create_similar_groups,
@@ -162,10 +161,10 @@ var color = d3.scale.category20();
 
 # File extension for the different output types
 FILE_EXT = {
-        "d3": ".html",
-        "dotpdf": ".pdf",
-        "dotraw": ".dot",
-        }
+    "d3": ".html",
+    "dotpdf": ".pdf",
+    "dotraw": ".dot",
+    }
 
 
 def parse_args():
@@ -180,36 +179,39 @@ def parse_args():
         )
 
     parser.add_argument('filein',
-                        help='A ruleset')
+                        help='the ruleset')
+    parser.add_argument('--input-format', default="auto",
+                        choices=INPUT_FORMATS,
+                        help="the input format, 'auto' by default."
+                             " If 'fib', applies optimisations to the"
+                             " dependency calculation.")
     parser.add_argument('-t', '--type', choices=["dotraw", "dotpdf", "d3", "pyplot"],
-                        default="pyplot", help="Select the output format")
+                        default="pyplot", help="the output format")
     parser.add_argument('-d', '--dependencies', default="direct",
                         choices=["direct", "indirect"],
-                        help='Show and compute using direct or indirect dependencies')
+                        help='show and compute using direct or indirect dependencies')
     parser.add_argument('-c', '--cluster', default="none",
                         choices=["none", "compressed", "priority", "table"],
-                        help='Create clusters in separate boxes (dot only)')
+                        help='create clusters in separate boxes (dot only)')
     parser.add_argument('-g', '--group', default="none",
                         choices=["none", "compressed", "priority", "table"],
-                        help='Group into separate layers/ranks down the graph')
+                        help='group into separate layers/ranks down the graph')
     parser.add_argument('--compress', action='store_true',
-                        help="Run compress on the ruleset and highlight the "
+                        help="run compress on the ruleset and highlight the "
                              "selected rules (the light-blue nodes)")
     parser.add_argument('--only-group', action='store_true',
-                        help="Find groups for compression but do not pick a final rule."
+                        help="find groups for compression but do not pick a final rule."
                              " For when the picking a rule is not possible.")
     parser.add_argument('-m', '--no-table-miss', action='store_true',
-                        help="Don't display table-miss rules")
-    parser.add_argument('-f', '--fib', action='store_true',
-                        help="Loads a FIB and enables optimisations")
+                        help="do not display table-miss rules")
     parser.add_argument('--node-label',
-                        help="format() a node, extra z or Z modifier for alpha")
+                        help="format() a node name, extra z or Z modifier for alpha")
     parser.add_argument('--group-label',
-                        help="format() a node, extra z or Z modifier for alpha")
+                        help="format() a group name, extra z or Z modifier for alpha")
     parser.add_argument('-o', '--output',
-                        help="Save the result to the given file")
+                        help="save the result to the given file")
     parser.add_argument('-O', '--output-only', action='store_true',
-                        help="Do not try and display the result")
+                        help="do not try and display the result")
     args = parser.parse_args()
 
     if args.type == "pyplot" and (args.output_only or args.output):
@@ -347,7 +349,7 @@ def build_graph(ruleset, args):
         dep_lib = ruleset_deps_indirect
 
     ruleset = sort_ruleset(ruleset)
-    if args.fib:
+    if args.input_format == "fib":
         deps = dep_lib.build_prefix_table_deps(ruleset)
     else:
         deps = dep_lib.build_ruleset_deps(ruleset)
@@ -432,10 +434,7 @@ def main():
     args = parse_args()
 
     # Load the ruleset
-    if args.fib:
-        ruleset = ruleset_from_fib(args.filein)
-    else:
-        ruleset = ruleset_from_ryu(args.filein)
+    ruleset = load_ruleset(args.filein, args.input_format)
 
     graph = build_graph(ruleset, args)
 

@@ -82,7 +82,8 @@ setup(
         "console_scripts": [
             "check_equivalence = ofequivalence.check_equivalence:main",
             "compress_ruleset = ofequivalence.compress_ruleset:main",
-            "graph_ruleset_deps = ofequivalence.graph_ruleset_deps:main"
+            "graph_ruleset_deps = ofequivalence.graph_ruleset_deps:main",
+            "convert_ruleset = ofequivalence.convert_ruleset:main"
             ]
         }
     )

@@ -19,6 +19,7 @@
 
 from __future__ import print_function
 import argparse
+import sys
 
 try:
     from tqdm import tqdm
@@ -31,8 +32,7 @@ from .ruleset import to_single_table
 from . import cuddbdd
 from .normalisebdd import (find_conflicting_paths, normalise_naive,
                            normalise_divide_and_conquer, check_equal)
-from .convert_ryu import ruleset_from_ryu
-from .convert_fib import ruleset_from_fib
+from .convert_ruleset import INPUT_FORMATS, load_ruleset
 from .utils import Timer
 
 OF = OpenFlow1_3_5()
@@ -76,40 +76,58 @@ def reverse_fields(ruleset):
 def main():
     """ Arguments """
     parser = argparse.ArgumentParser(
-        description="Time building a ruleset into a MTBDD")
-    parser.add_argument('files', help="A pickled ryu ruleset capture", nargs='*')
+        description="Check for forwarding equivalence between two or more rulesets")
+    parser.add_argument('rulesets', nargs='*', metavar="ruleset",
+                        help="the rulesets to check equivalence of. "
+                             "This automatically detects the ruleset format. "
+                             "Available formats are listed in the formats section below.")
     parser.add_argument('-d', '--divide-conquer', action="store_true",
-                        help="Use a divide and conquer building")
+                        help="use the faster divide-and-conquer method for"
+                             " building the MTBDD")
     parser.add_argument('-r', '--reverse', action="store_true",
-                        help="Reverse field bit ordering, can force a bad ordering within the BDD.")
+                        help="reverse field bit ordering, which can force a"
+                             " inefficient ordering within the MTBDD.")
     parser.add_argument('-D', '--difference', action="store_true",
-                        help="Print the difference of rulesets.")
-    parser.add_argument('-f', '--FIB', action="append",
-                        help="Pass a FIB rather than a ryu capture")
+                        help="print the difference between the first and each"
+                             " differing ruleset.")
     parser.add_argument('-v', '--verbose', action="store_true",
-                        help="Print additional stats from CUDD")
+                        help="print additional stats from CUDD")
+
+    format_parser = parser.add_argument_group(
+        title="formats",
+        description="Optional arguments to specify the format of the ruleset."
+                    " Useful if reading from a pipe or stdin (denoted by -)"
+                    " where automatic detection cannot seek back in the file.")
+
+    for _format in INPUT_FORMATS:
+        _help = "load a ruleset from the " + _format + " format."
+        if _format == "auto":
+            _help += " This is the default behaviour which tries all known formats."
+        format_parser.add_argument("--" + _format, action="append", default=[],
+                                   metavar="RULESET",
+                                   help=_help)
 
     args = parser.parse_args()
-
-    if not args.files and not args.FIB:
-        print("Please pass at least one file or FIB.")
-        parser.print_usage()
-        exit(-1)
 
     canonical_rulesets = []
     rulesets = {}
     single_tables = {}
-    if args.files:
-        for f_name in args.files:
-            with Timer("Loading ryu file: " + f_name):
-                ruleset = ruleset_from_ryu(f_name)
+    if args.rulesets:
+        for f_name in args.rulesets:
+            with Timer("Loading file: " + f_name):
+                ruleset = load_ruleset(f_name, "auto")
                 rulesets[f_name] = ruleset
 
-    if args.FIB:
-        for f_name in args.FIB:
-            with Timer("Loading FIB file: " + f_name):
-                ruleset = ruleset_from_fib(f_name)
+    for _format in INPUT_FORMATS:
+        for f_name in getattr(args, _format, []):
+            with Timer("Loading " + _format + " file: " + f_name):
+                ruleset = load_ruleset(f_name, _format)
                 rulesets[f_name] = ruleset
+
+    if not rulesets:
+        print("Please pass at least one ruleset", file=sys.stderr)
+        parser.print_usage()
+        exit(-1)
 
     for f_name, ruleset in rulesets.items():
         print("Processing ruleset: " + f_name)

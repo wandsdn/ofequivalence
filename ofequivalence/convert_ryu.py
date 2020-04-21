@@ -26,7 +26,6 @@ except ImportError:
     from pickle import UnpicklingError
 import json
 import sys
-from io import TextIOWrapper
 
 import six
 from six import viewitems
@@ -36,9 +35,10 @@ from ryu.ofproto.ofproto_protocol import ProtocolDesc
 from ryu.ofproto.ofproto_parser import ofp_msg_from_jsondict
 
 from .rule import Rule, Match, Instructions, ActionSet, ActionList, Group
-from .utils import open_compressed, nullcontext
+from .utils import as_file_handle
 
 DP = ProtocolDesc(version=ofproto_v1_3.OFP_VERSION)
+
 
 def _normalise_bytes(value):
     """ Converts bytes or network strings to an int """
@@ -216,6 +216,7 @@ def ruleset_to_ryu(ruleset):
     return [rule_to_ryu(r)[0] for r in ruleset]
 
 
+@as_file_handle('w', arg=('file', 1))
 def ruleset_to_ryu_json(ruleset, file):
     """ Write a ruleset of ryu OFPFlowMods to a file in json format
 
@@ -224,12 +225,10 @@ def ruleset_to_ryu_json(ruleset, file):
     if ruleset:
         assert isinstance(ruleset[0], Rule)
     as_json = [r.to_jsondict() for r in ruleset_to_ryu(ruleset)]
-    try:
-        with open(file, 'w') as f_out:
-            json.dump(as_json, f_out)
-    except TypeError:
-        json.dump(as_json, file)
+    json.dump(as_json, file)
 
+
+@as_file_handle('wb', arg=('file', 1))
 def ruleset_to_ryu_pickle(ruleset, file):
     """ Write a pickled ruleset of ryu OFPFlowMods to a file
 
@@ -238,13 +237,10 @@ def ruleset_to_ryu_pickle(ruleset, file):
     if ruleset:
         assert isinstance(ruleset[0], Rule)
     as_ryu = ruleset_to_ryu(ruleset)
-    try:
-        with open(file, 'wb') as f_out:
-            pickle.dump(as_ryu, f_out)
-    except TypeError:
-        pickle.dump(as_ryu, file)
+    pickle.dump(as_ryu, file)
 
 
+@as_file_handle('wb', arg=('file', 1))
 def ruleset_to_pickle(ruleset, file):
     """ Write a pickled ruleset of Rules to a file
 
@@ -252,33 +248,31 @@ def ruleset_to_pickle(ruleset, file):
     """
     if ruleset:
         assert isinstance(ruleset[0], Rule)
-    try:
-        with open(file, 'wb') as f_out:
-            pickle.dump(ruleset, f_out)
-    except TypeError:
-        pickle.dump(ruleset, file)
+    pickle.dump(ruleset, file)
 
 
+@as_file_handle('rb')
 def ruleset_from_pickle(file):
     """ Read a pickled ruleset from disk
+
+        This can be either pickled Rules or Ryu Rules.
 
         file: The readable binary file-like object, or the name of the input file
         return: A ruleset, a list of Rules
     """
-    try:
-        with open(file, 'rb') as f_in:
-            if six.PY3:
-                ruleset = pickle.load(f_in, encoding='latin1')
-            else:
-                ruleset = pickle.load(f_in)
-    except TypeError:
-        if six.PY3:
-            ruleset = pickle.load(file, encoding='latin1')
-        else:
-            ruleset = pickle.load(file)
+    if six.PY3:
+        ruleset = pickle.load(file, encoding='latin1')
+    else:
+        ruleset = pickle.load(file)
 
-    if ruleset:
-        assert isinstance(ruleset[0], Rule)
+    # Did we load a list of Rules()?
+    if isinstance(ruleset, list) and ruleset and isinstance(ruleset[0], Rule):
+        return ruleset
+
+    # Must be Ryu rules
+    if isinstance(ruleset, dict):
+        ruleset = ruleset["flow_stats"]
+    ruleset = [rule_from_ryu(r) for r in ruleset]
     return ruleset
 
 
@@ -287,47 +281,33 @@ def ruleset_from_ryu(file):
 
         file: The readable binary file-like object, or the name of the input file
         return: A list of Rules
+
+        Deprecated, use convert_ruleset.load_ruleset(file, 'auto') instead
     """
-    _open_compressed = open_compressed
-    if hasattr(file, 'read'):
-        _open_compressed = nullcontext
-    with _open_compressed(file, "rb") as f_handle:
-        ruleset = None
-        if 'json' in file or 'jsn' in file:
-            # Try json first
-            try:
-                ruleset = ruleset_from_ryu_json(f_handle)
-            except ValueError:  # Only python3 has JSONDecodeError
-                f_handle.seek(0)
-                ruleset = ruleset_from_ryu_pickle(f_handle)
-        else:
-            try:
-                ruleset = ruleset_from_ryu_pickle(f_handle)
-            except UnpicklingError:
-                f_handle.seek(0)
-                ruleset = ruleset_from_ryu_json(f_handle)
-
-    return ruleset
-
-def ruleset_from_ryu_pickle(f_handle):
-    """ Loads a pickled ryu ruleset
-
-        The ruleset can be compressed, either .gz or .bz2 and are
-        decompressed based on their extension.
-
-        The ryu ruleset can be a dump of flow stats, or flow mods.
-
-        f_handle: An open file handle
-        return: A list of Rules
-    """
-    if six.PY3:
-        stats = pickle.load(f_handle, encoding='latin1')
+    if hasattr(file, 'name'):
+        file_name = file.name
     else:
-        stats = pickle.load(f_handle)
-    if isinstance(stats, dict):
-        stats = stats["flow_stats"]
-    ruleset = [rule_from_ryu(r) for r in stats]
+        file_name = file
+
+    ruleset = None
+    if 'json' in file_name or 'jsn' in file_name:
+        # Try json first
+        try:
+            ruleset = ruleset_from_ryu_json(file)
+        except ValueError:  # Only python3 has JSONDecodeError
+            if hasattr(file, "seek"):
+                file.seek(0)
+            ruleset = ruleset_from_pickle(file)
+    else:
+        try:
+            ruleset = ruleset_from_pickle(file)
+        except UnpicklingError:
+            if hasattr(file, "seek"):
+                file.seek(0)
+            ruleset = ruleset_from_ryu_json(file)
+
     return ruleset
+
 
 def ryu_from_jsondict(jsondict):
     """ Load a ryu object from a json dictionary
@@ -341,6 +321,8 @@ def ryu_from_jsondict(jsondict):
             value["datapath"] = DP
         return cls.from_jsondict(value)
 
+
+@as_file_handle('r')
 def ruleset_from_ryu_json(f_handle):
     """ Loads a ryu ruleset from json
 
@@ -349,14 +331,10 @@ def ruleset_from_ryu_json(f_handle):
 
         The ryu ruleset can be a dump of flow stats, or flow mods.
 
-        f_handle: An open file handle
+        f_handle: An open file handle, or path
         return: A list of Rules
     """
-    if six.PY3:
-        with TextIOWrapper(f_handle) as text_handle:
-            stats = json.load(text_handle)
-    else:
-        stats = json.load(f_handle)
+    stats = json.load(f_handle)
 
     # Find something that looks about right
     while isinstance(stats, dict):
@@ -605,5 +583,5 @@ def rule_to_ryu(rule):
                             priority=rule.priority,
                             match=match,
                             instructions=instructions
-                            )
+                           )
     return (ryu, extra_messages)
