@@ -17,21 +17,50 @@ Where a ruleset is a pickled ryu capture.
 For other options view the help
 ```
 $ check_equivalence -h
-usage: check_equivalence [-h] [-d] [-r] [-D] [-f FIB] [-v] [files [files ...]]
+usage: check_equivalence [-h] [-d] [-r] [-D] [-v] [--auto RULESET]
+                         [--ryu_pickle RULESET] [--ryu_json RULESET]
+                         [--pickle RULESET] [--ovs RULESET] [--fib RULESET]
+                         [ruleset [ruleset ...]]
 
-Time building a ruleset into a MTBDD
+Check for forwarding equivalence between two or more rulesets
 
 positional arguments:
-  files                 A pickled ryu ruleset capture
+  ruleset               the rulesets to check equivalence of. This
+                        automatically detects the ruleset format. Available
+                        formats are listed in the formats section below.
 
 optional arguments:
   -h, --help            show this help message and exit
-  -d, --divide-conquer  Use a divide and conquer building
-  -r, --reverse         Reverse field bit ordering, can force a bad ordering
-                        within the BDD.
-  -D, --difference      Print the difference of rulesets.
-  -f FIB, --FIB FIB     Pass a FIB rather than a ryu capture
-  -v, --verbose         Print additional stats from CUDD
+  -d, --divide-conquer  use the faster divide-and-conquer method for building
+                        the MTBDD
+  -r, --reverse         reverse field bit ordering, which can force a
+                        inefficient ordering within the MTBDD.
+  -D, --difference      print the difference between the first and each
+                        differing ruleset.
+  -v, --verbose         print additional stats from CUDD
+
+formats:
+  Optional arguments to specify the format of the ruleset. Useful if reading
+  from a pipe or stdin (denoted by -) where automatic detection cannot seek
+  back in the file.
+
+  --auto RULESET        load a ruleset from the auto format. This is the
+                        default behaviour which tries all known formats.
+  --ryu_pickle RULESET  load a ruleset from the ryu_pickle format.
+  --ryu_json RULESET    load a ruleset from the ryu_json format.
+  --pickle RULESET      load a ruleset from the pickle format.
+  --ovs RULESET         load a ruleset from the ovs format.
+  --fib RULESET         load a ruleset from the fib format.
+```
+
+#### Other Tools
+
+ofequivalence also ships the following tools (use -h to show usage information):
+
+```
+compress_ruleset
+graph_ruleset_deps
+convert_ruleset
 ```
 
 #### Memory Limit
