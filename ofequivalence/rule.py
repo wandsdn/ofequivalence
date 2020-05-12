@@ -1222,9 +1222,9 @@ class Match(dict):
         for key, value in viewitems(self):
             try:
                 oxm = G_OF.oxm_fields[key]
-                ret.append(FORMATTERS[oxm.format](*value[:2]))
+                ret.append(key + ": " + FORMATTERS[oxm.format](*value[:2]))
             except KeyError:
-                ret.append(format_hex(*value[:2]))
+                ret.append(key + ": " + format_hex(*value[:2]))
         return "{" + ", ".join(ret) + "}"
 
     def empty(self):
