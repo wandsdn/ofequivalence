@@ -99,6 +99,11 @@ static PyObject *osubtract_recursive(PyObject *self, PyObject *args);
 static PyObject *ointersection_recursive(PyObject *self, PyObject *args);
 static PyObject *odifference_recursive(PyObject *self, PyObject *args);
 static PyObject *odifftagged_recursive(PyObject *self, PyObject *args);
+static PyObject *ois_terminal(PyObject *self, PyObject *args);
+static PyObject *oget_index(PyObject *self, PyObject *args);
+static PyObject *oget_true(PyObject *self, PyObject *args);
+static PyObject *oget_false(PyObject *self, PyObject *args);
+static PyObject *oget_terminal(PyObject *self, PyObject *args);
 static Py_ssize_t BDD_len(PyObject *);
 static int BDD_bool(PyObject *);
 
@@ -109,6 +114,11 @@ static PyMethodDef BDD_methods[] = {
      "Tagged Difference BDDs"},
     {"intersection", ointersection_recursive, METH_VARARGS,
      "Intersection of BDDs"},
+    {"is_terminal", ois_terminal, METH_NOARGS, "Returns True if this a terminal node"},
+    {"get_index", oget_index, METH_NOARGS, "Returns the index of this node as an int"},
+    {"get_true", oget_true, METH_NOARGS, "Returns the BDD of the True decision"},
+    {"get_false", oget_false, METH_NOARGS, "Returns the BDD of the False decision"},
+    {"get_terminal", oget_terminal, METH_NOARGS, "Returns the decision as a (int, int) tuple"},
     {0}};
 
 #if PY_MAJOR_VERSION >= 3
@@ -670,6 +680,73 @@ static PyObject *ointersection_recursive(PyObject *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "O", &b))
     return NULL;
   return bintersection_recursive(self, b);
+}
+
+static PyObject *ois_terminal(PyObject *self, PyObject *Py_UNUSED(args)){
+  DdNode *node = ((BDD *)self)->root;
+  if (node) {
+    if (Cudd_IsConstant(node)) {
+      Py_RETURN_TRUE;
+    } else {
+      Py_RETURN_FALSE;
+    }
+  } else {
+    PyErr_BadArgument();
+    return NULL;
+  }
+}
+
+static PyObject *oget_index(PyObject *self, PyObject *Py_UNUSED(args)){
+  DdNode *node = ((BDD *)self)->root;
+  if (node != NULL && !Cudd_IsConstant(node)) {
+    return PyLong_FromLong(node->index);
+  } else {
+    PyErr_BadArgument();
+    return NULL;
+  }
+}
+
+static PyObject *oget_true(PyObject *self, PyObject *Py_UNUSED(args)){
+  BDD *bdd;
+  DdNode *node = ((BDD *)self)->root;
+  if (node != NULL && !Cudd_IsConstant(node)) {
+    bdd = (BDD *)PyObject_CallObject((PyObject *)&BDDType, NULL);
+    Cudd_Deref(bdd->root);
+    bdd->root = Cudd_T(node);
+    Cudd_Ref(bdd->root);
+    return (PyObject *) bdd;
+  } else {
+    PyErr_BadArgument();
+    return NULL;
+  }
+}
+
+static PyObject *oget_false(PyObject *self, PyObject *Py_UNUSED(args)){
+  BDD *bdd;
+  DdNode *node = ((BDD *)self)->root;
+  if (node != NULL && !Cudd_IsConstant(node)) {
+    bdd = (BDD *)PyObject_CallObject((PyObject *)&BDDType, NULL);
+    Cudd_Deref(bdd->root);
+    bdd->root = Cudd_E(node);
+    Cudd_Ref(bdd->root);
+    return (PyObject *) bdd;
+  } else {
+    PyErr_BadArgument();
+    return NULL;
+  }
+}
+
+static PyObject *oget_terminal(PyObject *self, PyObject *Py_UNUSED(args)){
+  BDD *bdd;
+  DdNode *node = ((BDD *)self)->root;
+  if (node != NULL && Cudd_IsConstant(node)) {
+    int x, y;
+    DECODE_TERMINAL(Cudd_V(node), x, y);
+    return Py_BuildValue("(ii)", x, y);
+  } else {
+    PyErr_BadArgument();
+    return NULL;
+  }
 }
 
 #if PyLong_SHIFT % 2 != 0

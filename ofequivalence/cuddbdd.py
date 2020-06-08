@@ -19,7 +19,8 @@
 # limitations under the License.
 
 import six
-from .headerspace import bytes_needed, flow_wildcard_to_flowmatches
+from .headerspace import (bytes_needed, flow_wildcard_to_flowmatches,
+                          G_OF, WC_FIELD_OFFSET)
 from .rule import Match
 from . import _cudd
 from ._cudd import BDD, BDDIterator, shared_size
@@ -34,7 +35,17 @@ ACTION_MAPPING[IS_DIFFERING_TUPLE[1]] = ACTION_COUNTER
 FACTION_TO_ACTION = {IS_DIFFERING_TUPLE[1]: IS_DIFFERING_TUPLE[0]}
 TERM_TO_ACTION = {0: None, 1: IS_DIFFERING_TUPLE[0]}
 ACTION_COUNTER += 1
-
+BDD_INDEX_TO_FIELD = {}  # Node index to (field, bit) where bit [0] is the LSB
+def _generate_bdd_index_to_field():
+    # Note the headerspace bit order is reversed vs.
+    # BDD index number
+    # bit [0] is the LSB of the field
+    max_offset = (bytes_needed * 8) - 1
+    for field in WC_FIELD_OFFSET:
+        offset = WC_FIELD_OFFSET[field]
+        for bit in range(G_OF.oxm_fields[field].bits):
+            BDD_INDEX_TO_FIELD[max_offset - (offset + bit)] = field, bit
+_generate_bdd_index_to_field()
 
 def wc_to_BDD(wc, action, f_action):
     """ Convert a wildcard to a BDD
